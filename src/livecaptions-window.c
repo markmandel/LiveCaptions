@@ -70,7 +70,7 @@ static void update_line_width(LiveCaptionsWindow *self){
     pango_layout_set_text(layout, LINE_WIDTH_TEXT_TEMPLATE, text_len);
     pango_layout_get_size(layout, &width, &height);
 
-    height = (height / PANGO_SCALE) * AC_LINE_COUNT + AC_LINE_COUNT;
+    height = (height / PANGO_SCALE) * AC_LINE_COUNT + (AC_LINE_COUNT/2);
     width  = (width / PANGO_SCALE);
     change_button_layout(self, height);
 
