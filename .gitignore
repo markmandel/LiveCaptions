@@ -1,3 +1,5 @@
+.*
+!.gitignore
 build
 build/*
 _build

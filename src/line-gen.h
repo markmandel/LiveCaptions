@@ -27,7 +27,7 @@
 #include <adwaita.h>
 
 #define AC_LINE_MAX 4096
-#define AC_LINE_COUNT 2
+#define AC_LINE_COUNT 8
 
 struct token_capitalizer {
     bool is_english;

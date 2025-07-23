@@ -23,6 +23,7 @@
 #include "audiocap.h"
 #include "window-helper.h"
 #include "history.h"
+#include "line-gen.h"
 
 
 G_DEFINE_TYPE(LiveCaptionsWindow, livecaptions_window, GTK_TYPE_APPLICATION_WINDOW)
@@ -69,7 +70,7 @@ static void update_line_width(LiveCaptionsWindow *self){
     pango_layout_set_text(layout, LINE_WIDTH_TEXT_TEMPLATE, text_len);
     pango_layout_get_size(layout, &width, &height);
 
-    height = (height / PANGO_SCALE) * 2 + 2;
+    height = (height / PANGO_SCALE) * AC_LINE_COUNT + AC_LINE_COUNT;
     width  = (width / PANGO_SCALE);
     change_button_layout(self, height);
 
