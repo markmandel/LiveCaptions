@@ -313,7 +313,8 @@ void line_generator_set_text(struct line_generator *lg, GtkLabel *lbl) {
     char *head = &lg->output[0];
     *head = '\0';
 
-    for(int i=AC_LINE_COUNT-1; i>=0; i--) {
+    int display_count = g_settings_get_int(settings, "num-lines");
+    for(int i=display_count-1; i>=0; i--) {
         struct line *curr = &lg->lines[REL_LINE_IDX(lg->current_line, -i)];
         head += sprintf(head, "%s", curr->text);
 
@@ -334,7 +335,8 @@ const char *line_generator_get_plaintext(struct line_generator *lg) {
     char *head = &lg->plaintext[0];
     *head = '\0';
 
-    for(int i=AC_LINE_COUNT-1; i>=0; i--) {
+    int display_count = g_settings_get_int(settings, "num-lines");
+    for(int i=display_count-1; i>=0; i--) {
         struct line *curr = &lg->lines[REL_LINE_IDX(lg->current_line, -i)];
 
         if(!use_fade) {

@@ -196,6 +196,9 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, window_transparency_scale);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, window_transparency_adjustment);
 
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, line_count_scale);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, line_count_adjustment);
+
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, benchmark_label);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, keep_above_instructions);
 
@@ -415,12 +418,14 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     g_settings_bind(self->settings, "save-history", self->save_history_switch, "active", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "line-width", self->line_width_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "window-transparency", self->window_transparency_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
+    g_settings_bind(self->settings, "num-lines", self->line_count_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "text-stream-active", self->text_stream_switch, "active", G_SETTINGS_BIND_DEFAULT);
 
     g_settings_bind(self->settings, "font-name", self->font_button, "font", G_SETTINGS_BIND_DEFAULT);
 
     gtk_scale_add_mark(self->line_width_scale, 50.0, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->window_transparency_scale, 0.25, GTK_POS_TOP, NULL);
+    gtk_scale_add_mark(self->line_count_scale, 8.0, GTK_POS_TOP, NULL);
 
     char benchmark_result[32];
     double benchmark_result_v = g_settings_get_double(self->settings, "benchmark");

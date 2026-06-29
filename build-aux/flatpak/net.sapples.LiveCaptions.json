@@ -1,7 +1,7 @@
 {
     "app-id" : "net.sapples.LiveCaptions",
     "runtime" : "org.gnome.Platform",
-    "runtime-version" : "48",
+    "runtime-version" : "50",
     "sdk" : "org.gnome.Sdk",
     "command" : "livecaptions",
     "finish-args" : [
@@ -37,16 +37,16 @@
                     "type" : "archive",
                     "only-arches" : ["x86_64"],
                     "dest" : "onnxruntime-1",
-                    "url" : "https://github.com/microsoft/onnxruntime/releases/download/v1.14.1/onnxruntime-linux-x64-1.14.1.tgz",
-                    "sha256" : "010585f534d822bf02d54c7cfc53b57aa3eb0cf34f8fb7503ee519ed18e25d29"
+                    "url" : "https://github.com/microsoft/onnxruntime/releases/download/v1.27.0/onnxruntime-linux-x64-1.27.0.tgz",
+                    "sha256" : "547e40a48f1fe73e3f812d7c88a948612c23f896b91e4e2ee1e232d7b468246f"
                 },
 
                 {
                     "type" : "archive",
                     "only-arches" : ["aarch64"],
                     "dest" : "onnxruntime-1",
-                    "url" : "https://github.com/microsoft/onnxruntime/releases/download/v1.14.1/onnxruntime-linux-aarch64-1.14.1.tgz",
-                    "sha256" : "20965e05d2da6a0e6acedda8aca1a8f75c3f4cb1d7932403a9977b753b1b2120"
+                    "url" : "https://github.com/microsoft/onnxruntime/releases/download/v1.27.0/onnxruntime-linux-aarch64-1.27.0.tgz",
+                    "sha256" : "3e4d83ac06924a32a07b6d7f91ce6f852876153fc0bbdf931bf517a140bfbe48"
                 }
             ],
             "build-commands" : [

@@ -46,6 +46,9 @@ struct _LiveCaptionsSettings {
     GtkScale *window_transparency_scale;
     GtkAdjustment *window_transparency_adjustment;
 
+    GtkScale *line_count_scale;
+    GtkAdjustment *line_count_adjustment;
+
     GtkLabel *benchmark_label;
     GtkLabel *keep_above_instructions;
 

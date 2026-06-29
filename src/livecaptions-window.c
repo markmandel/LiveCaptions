@@ -70,7 +70,8 @@ static void update_line_width(LiveCaptionsWindow *self){
     pango_layout_set_text(layout, LINE_WIDTH_TEXT_TEMPLATE, text_len);
     pango_layout_get_size(layout, &width, &height);
 
-    height = (height / PANGO_SCALE) * AC_LINE_COUNT + AC_LINE_COUNT;
+    int num_lines = g_settings_get_int(self->settings, "num-lines");
+    height = (height / PANGO_SCALE) * num_lines + num_lines;
     width  = (width / PANGO_SCALE);
     change_button_layout(self, height);
 
@@ -129,7 +130,7 @@ static void on_settings_change(G_GNUC_UNUSED GSettings *settings,
     LiveCaptionsWindow *self = user_data;
     if(g_str_equal(key, "font-name")) {
         update_font(self);
-    }else if(g_str_equal(key, "line-width")) {
+    }else if(g_str_equal(key, "line-width") || g_str_equal(key, "num-lines")) {
         update_line_width(self);
     }else if(g_str_equal(key, "transparent-window") || g_str_equal(key, "window-transparency")) {
         update_window_transparency(self);

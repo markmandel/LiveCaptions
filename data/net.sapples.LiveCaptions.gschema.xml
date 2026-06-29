@@ -45,6 +45,12 @@
             <default>50</default>
         </key>
 
+        <key name="num-lines" type="i">
+            <default>8</default>
+            <summary>Number of transcription lines to display</summary>
+            <range min="1" max="25"/>
+        </key>
+
         <key name="benchmark" type="d">
             <default>-1.0</default>
         </key>
