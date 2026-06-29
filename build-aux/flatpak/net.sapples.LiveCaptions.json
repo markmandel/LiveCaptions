@@ -54,7 +54,7 @@
                 "mv onnxruntime-1/* $ONNX_ROOT",
 
                 "mkdir -p $FLATPAK_DEST/lib",
-                "cp $ONNX_ROOT/lib/* $FLATPAK_DEST/lib"
+                "cp $ONNX_ROOT/lib/libonnxruntime*.so* $FLATPAK_DEST/lib"
             ]
         },
 
