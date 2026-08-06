@@ -139,19 +139,37 @@
                 <property name="title" translatable="yes">Clear After Silence</property>
 
                 <child type="suffix">
-                  <object class="GtkScale" id="silence_timeout_scale">
+                  <object class="GtkBox">
                     <property name="visible">True</property>
                     <property name="valign">center</property>
-                    <property name="width-request">200</property>
-                    <property name="digits">0</property>
-                    <property name="adjustment">
-                      <object class="GtkAdjustment" id="silence_timeout_adjustment">
-                        <property name="lower">1</property>
-                        <property name="upper">60</property>
-                        <property name="step-increment">1</property>
-                        <property name="page-increment">5</property>
+                    <property name="spacing">8</property>
+
+                    <child>
+                      <object class="GtkScale" id="silence_timeout_scale">
+                        <property name="visible">True</property>
+                        <property name="valign">center</property>
+                        <property name="width-request">200</property>
+                        <property name="digits">0</property>
+                        <property name="adjustment">
+                          <object class="GtkAdjustment" id="silence_timeout_adjustment">
+                            <property name="lower">1</property>
+                            <property name="upper">60</property>
+                            <property name="step-increment">1</property>
+                            <property name="page-increment">5</property>
+                            <signal name="value-changed" handler="on_silence_timeout_value_changed" swapped="no"/>
+                          </object>
+                        </property>
                       </object>
-                    </property>
+                    </child>
+
+                    <child>
+                      <object class="GtkLabel" id="silence_timeout_label">
+                        <property name="visible">True</property>
+                        <property name="valign">center</property>
+                        <property name="width-chars">10</property>
+                        <property name="xalign">1.0</property>
+                      </object>
+                    </child>
                   </object>
                 </child>
               </object>

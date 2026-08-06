@@ -51,6 +51,7 @@ struct _LiveCaptionsSettings {
 
     GtkScale *silence_timeout_scale;
     GtkAdjustment *silence_timeout_adjustment;
+    GtkLabel *silence_timeout_label;
 
     GtkLabel *benchmark_label;
     GtkLabel *keep_above_instructions;
