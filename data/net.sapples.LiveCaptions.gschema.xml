@@ -51,6 +51,12 @@
             <range min="1" max="25"/>
         </key>
 
+        <key name="silence-clear-timeout" type="d">
+            <default>6.0</default>
+            <summary>Seconds of silence after which the caption history is cleared</summary>
+            <range min="1" max="60"/>
+        </key>
+
         <key name="benchmark" type="d">
             <default>-1.0</default>
         </key>

@@ -133,6 +133,29 @@
                 </child>
               </object>
             </child>
+
+            <child>
+              <object class="AdwActionRow">
+                <property name="title" translatable="yes">Clear After Silence</property>
+
+                <child type="suffix">
+                  <object class="GtkScale" id="silence_timeout_scale">
+                    <property name="visible">True</property>
+                    <property name="valign">center</property>
+                    <property name="width-request">200</property>
+                    <property name="digits">0</property>
+                    <property name="adjustment">
+                      <object class="GtkAdjustment" id="silence_timeout_adjustment">
+                        <property name="lower">1</property>
+                        <property name="upper">60</property>
+                        <property name="step-increment">1</property>
+                        <property name="page-increment">5</property>
+                      </object>
+                    </property>
+                  </object>
+                </child>
+              </object>
+            </child>
           </object>
         </child>
 

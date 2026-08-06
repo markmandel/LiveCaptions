@@ -70,6 +70,8 @@ struct asr_thread_i {
 
 static gboolean main_thread_update_label(void *userdata);
 
+static GSettings *settings = NULL;
+
 static void *run_asr_thread(void *userdata){
     asr_thread data = (asr_thread)userdata;
 
@@ -80,7 +82,7 @@ static void *run_asr_thread(void *userdata){
 
         time_t current_time = time(NULL);
 
-        if(difftime(current_time, data->last_silence_time) >= 6.0) {
+        if(difftime(current_time, data->last_silence_time) >= g_settings_get_double(settings, "silence-clear-timeout")) {
             g_mutex_lock(&data->text_mutex);
             data->last_silence_time = 0;
             for(int i=1; i<AC_LINE_COUNT; i++) line_generator_break(&data->line);
@@ -212,6 +214,8 @@ int asr_thread_samplerate(asr_thread thread) {
 
 asr_thread create_asr_thread(const char *model_path){
     asr_thread data = calloc(1, sizeof(struct asr_thread_i));
+
+    if(settings == NULL) settings = g_settings_new("net.sapples.LiveCaptions");
 
     line_generator_init(&data->line);
 
