@@ -20,6 +20,7 @@
 #include "livecaptions-settings.h"
 #include "livecaptions-window.h"
 #include "livecaptions-welcome.h"
+#include "livecaptions-history-window.h"
 #include "window-helper.h"
 #include "asrproc.h"
 #include "common.h"
@@ -252,6 +253,24 @@ livecaptions_application_show_preferences(G_GNUC_UNUSED GSimpleAction *action,
 }
 
 
+static void
+livecaptions_application_show_history(G_GNUC_UNUSED GSimpleAction *action,
+                                      G_GNUC_UNUSED GVariant     *parameter,
+                                      gpointer       user_data)
+{
+    LiveCaptionsApplication *self = LIVECAPTIONS_APPLICATION(user_data);
+    if(self->welcome != NULL) return;
+
+    GtkWindow *window = gtk_application_get_active_window(GTK_APPLICATION(self));
+
+    LiveCaptionsHistoryWindow *history = g_object_new(LIVECAPTIONS_TYPE_HISTORY_WINDOW,
+                                                      "transient-for", window,
+                                                      NULL);
+
+    gtk_window_present(GTK_WINDOW(history));
+}
+
+
 static void on_settings_change(G_GNUC_UNUSED GSettings *settings,
                                char      *key,
                                gpointer   user_data){
@@ -336,6 +355,10 @@ static void livecaptions_application_init(LiveCaptionsApplication *self) {
     g_autoptr(GSimpleAction) prefs_action = g_simple_action_new("preferences", NULL);
     g_signal_connect(prefs_action, "activate", G_CALLBACK(livecaptions_application_show_preferences), self);
     g_action_map_add_action(G_ACTION_MAP(self), G_ACTION(prefs_action));
+
+    g_autoptr(GSimpleAction) history_action = g_simple_action_new("history", NULL);
+    g_signal_connect(history_action, "activate", G_CALLBACK(livecaptions_application_show_history), self);
+    g_action_map_add_action(G_ACTION_MAP(self), G_ACTION(history_action));
 
     gboolean use_microphone = g_settings_get_boolean(self->settings, "microphone");
     g_autoptr(GSimpleAction) mic_action = g_simple_action_new_stateful("microphone", NULL, g_variant_new_boolean(use_microphone));

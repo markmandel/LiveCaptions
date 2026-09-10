@@ -62,6 +62,21 @@
                     <property name="margin-top">4</property>
                     <property name="margin-bottom">4</property>
                     <property name="valign">center</property>
+                    <property name="icon-name">document-open-recent-symbolic</property>
+                    <property name="action-name">app.history</property>
+                    <property name="tooltip-text">Show the full transcript</property>
+                    <style>
+                      <class name="flat"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton">
+                    <property name="margin-start">4</property>
+                    <property name="margin-end">4</property>
+                    <property name="margin-top">4</property>
+                    <property name="margin-bottom">4</property>
+                    <property name="valign">center</property>
                     <property name="icon-name">settings-symbolic</property>
                     <property name="action-name">app.preferences</property>
                     <property name="tooltip-text">Adjust preferences</property>
@@ -187,6 +202,10 @@
       <item>
         <attribute name="label" translatable="yes">_Microphone Captioning</attribute>
         <attribute name="action">app.microphone</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">Full _Transcript</attribute>
+        <attribute name="action">app.history</attribute>
       </item>
       <item>
         <attribute name="label" translatable="yes">_Preferences</attribute>
