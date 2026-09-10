@@ -288,6 +288,15 @@ static void on_settings_change(G_GNUC_UNUSED GSettings *settings,
 
             asr_thread_set_text_stream_active(self->asr, active);
         }
+    }else if(g_str_equal(key, "diarization")){
+        asr_thread_set_diarization(self->asr,
+            g_settings_get_boolean(self->settings, "diarization"));
+    }else if(g_str_equal(key, "speaker-similarity-threshold")){
+        asr_thread_set_speaker_threshold(self->asr,
+            g_settings_get_double(self->settings, "speaker-similarity-threshold"));
+    }else if(g_str_equal(key, "max-speakers")){
+        asr_thread_set_max_speakers(self->asr,
+            g_settings_get_int(self->settings, "max-speakers"));
     }
 }
 

@@ -53,9 +53,17 @@ struct line {
     size_t len;
 };
 
+// Speaker id meaning "not attributed", matching HISTORY_SPEAKER_UNKNOWN
+#define LINE_SPEAKER_UNKNOWN (-1)
+#define LINE_SPEAKER_NAME_MAX 64
+
 struct line_generator {
     size_t current_line;
     struct line lines[AC_LINE_COUNT];
+
+    // Who the line being written belongs to, so that a change of speaker can
+    // start a fresh line with their name on it
+    int32_t current_speaker_id;
 
     // Denotes the index within the active token array at which the line starts
     // If -1, means the active tokens don't reach that line yet
@@ -75,6 +83,16 @@ void line_generator_init(struct line_generator *lg);
 void line_generator_update(struct line_generator *lg, size_t num_tokens, const AprilToken *tokens);
 void line_generator_finalize(struct line_generator *lg);
 void line_generator_break(struct line_generator *lg);
+// Starts a new line attributed to `speaker_id`, prefixed with `name`. Does
+// nothing if that speaker already holds the current line. Pass
+// LINE_SPEAKER_UNKNOWN to go back to unattributed text.
+void line_generator_set_speaker(struct line_generator *lg,
+                                int32_t speaker_id,
+                                const char *name);
+
+// The colour used for a speaker's name, as a Pango colour string
+const char *line_generator_speaker_color(int32_t speaker_id);
+
 void line_generator_set_text(struct line_generator *lg, GtkLabel *lbl);
 void line_generator_set_language(struct line_generator *lg, const char* language);
 const char *line_generator_get_plaintext(struct line_generator *lg);

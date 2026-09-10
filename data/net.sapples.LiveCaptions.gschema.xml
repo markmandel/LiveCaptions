@@ -85,5 +85,26 @@
             <default>false</default>
             <summary>Enable DBus API for external applications to use caption output</summary>
         </key>
+
+        <key name="diarization" type="b">
+            <default>true</default>
+            <summary>Identify and label individual speakers</summary>
+            <description>
+                Turn off to save a little CPU, or if the speaker models are not
+                installed. Captioning is unaffected either way.
+            </description>
+        </key>
+
+        <key name="speaker-similarity-threshold" type="d">
+            <default>0.55</default>
+            <summary>How similar two voices must sound to be treated as the same speaker</summary>
+            <range min="0.35" max="0.85"/>
+        </key>
+
+        <key name="max-speakers" type="i">
+            <default>8</default>
+            <summary>Largest number of distinct speakers to identify in one session</summary>
+            <range min="2" max="16"/>
+        </key>
     </schema>
 </schemalist>

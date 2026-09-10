@@ -24,3 +24,9 @@
 
 #define MINIMUM_BENCHMARK_RESULT (0.6)
 #define GET_MODEL_PATH() (getenv("APRIL_MODEL_PATH") == NULL) ? "/app/LiveCaptions/models/aprilv0_en-us.april" : getenv("APRIL_MODEL_PATH")
+
+// Speaker diarization models. As with the ASR model, the Flatpak build installs
+// these under /app and the environment variables let a local build point
+// somewhere else.
+#define GET_VAD_MODEL_PATH() (getenv("VAD_MODEL_PATH") == NULL) ? "/app/LiveCaptions/models/silero_vad_v5.onnx" : getenv("VAD_MODEL_PATH")
+#define GET_SPEAKER_MODEL_PATH() (getenv("SPEAKER_MODEL_PATH") == NULL) ? "/app/LiveCaptions/models/wespeaker_en_voxceleb_CAMPP_LM.onnx" : getenv("SPEAKER_MODEL_PATH")

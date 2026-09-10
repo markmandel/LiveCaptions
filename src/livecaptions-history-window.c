@@ -205,6 +205,15 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
                 j += skipahead;
             }
 
+            // Entries are walked newest-first and prepended, so a speaker's name
+            // goes on the front of their own entry
+            char speaker_label[HISTORY_SPEAKER_NAME_MAX];
+            if(history_speaker_label(session, entry->speaker_id,
+                                     speaker_label, sizeof(speaker_label))) {
+                g_string_prepend(entry_text, ": ");
+                g_string_prepend(entry_text, speaker_label);
+            }
+
             g_string_append_c(entry_text, '\n');
             g_string_prepend(string, entry_text->str);
 

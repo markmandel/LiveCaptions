@@ -37,7 +37,12 @@
 #include "livecaptions-window.h"
 #include "livecaptions-application.h"
 #include "history.h"
+#include "diarize.h"
 #include "common.h"
+
+// Shortest gap between two diarizer-driven flushes. A speaker boundary that
+// jitters must not be able to chop the transcript into fragments.
+#define SPEAKER_FLUSH_MIN_INTERVAL_MS 600
 
 struct asr_thread_i {
     volatile size_t sound_counter;
@@ -65,6 +70,27 @@ struct asr_thread_i {
     volatile bool ending;
 
     bool errored;
+
+    // Counts every sample handed to asr_thread_enqueue_audio, including the
+    // silent ones that never reach the ASR engine. AprilToken.time_ms cannot be
+    // used for this: it only advances on audio that was actually fed, and gets
+    // warped when april-asr speeds audio up to keep pace.
+    _Atomic uint64_t capture_samples;
+
+    diarize_state diarize;
+
+    // Capture-clock position of the last turn boundary. Recognition results
+    // arrive well after the audio that produced them, so an utterance is dated
+    // from the previous boundary rather than from when its callback fired.
+    // Any silence caught in that window is harmless: it contributes no speech
+    // to the tally.
+    uint64_t last_boundary_ms;
+
+    // Who the utterance being recognised belongs to, fixed when it started
+    int32_t utterance_speaker;
+    bool utterance_open;
+
+    uint64_t last_speaker_flush_ms;
 };
 
 
@@ -98,6 +124,57 @@ static void *run_asr_thread(void *userdata){
     //}
 
     return NULL;
+}
+
+// Current position of the capture clock, in milliseconds
+static uint64_t asr_capture_ms(asr_thread data) {
+    if(data->model == NULL) return 0;
+
+    uint64_t samples = data->capture_samples;
+    return (samples * 1000ull) / (uint64_t)aam_get_sample_rate(data->model);
+}
+
+// Called from the diarizer's worker thread when a different speaker takes the
+// floor. Flushing forces april-asr to finalize immediately, which is what makes
+// transcript boundaries line up with speaker boundaries instead of with the
+// engine's own 2.2s silence heuristic.
+static void on_speaker_changed(void *userdata, int32_t speaker_id) {
+    asr_thread data = userdata;
+
+    (void)speaker_id;
+
+    if((data->window == NULL) || data->pause) return;
+    if(data->session == NULL) return;
+
+    uint64_t now_ms = asr_capture_ms(data);
+
+    if((data->last_speaker_flush_ms != 0)
+        && ((now_ms - data->last_speaker_flush_ms) < SPEAKER_FLUSH_MIN_INTERVAL_MS)) return;
+
+    data->last_speaker_flush_ms = now_ms;
+
+    aas_flush(data->session);
+}
+
+// Puts the speaker's name on the line being written. Must be called with
+// text_mutex held, since it writes into the line generator.
+//
+// The name is only emitted when the speaker actually changes; line_generator
+// takes care of that. An unknown speaker is left alone rather than reset,
+// because a momentary gap in attribution should not break the line and then
+// re-announce the same person on the other side of it.
+static void apply_speaker_label(asr_thread data, int32_t speaker) {
+    if(!g_settings_get_boolean(settings, "diarization")) return;
+    if(speaker == HISTORY_SPEAKER_UNKNOWN) return;
+
+    // Registering first means an unnamed speaker still gets its "Speaker N"
+    // placeholder, and a renamed one picks up the name the user chose
+    history_register_speaker(speaker);
+
+    char label[LINE_SPEAKER_NAME_MAX];
+    if(!history_speaker_label(get_history_session(0), speaker, label, sizeof(label))) return;
+
+    line_generator_set_speaker(&data->line, speaker, label);
 }
 
 static gboolean main_thread_update_label(void *userdata){
@@ -138,10 +215,42 @@ static void april_result_handler(void* userdata, AprilResultType result, size_t 
                 data->layout_counter = data->window->font_layout_counter;
             }
 
+            if(!data->utterance_open) {
+                data->utterance_open = true;
+                data->utterance_speaker = HISTORY_SPEAKER_UNKNOWN;
+            }
+
+            // The diarizer needs about a second of speech before it can name
+            // anyone, so an utterance often starts before the answer exists.
+            // Keep asking until it does, then label the line already being
+            // written rather than waiting for the next one. Attribution is
+            // fixed once found, and reused for the history entry so the screen
+            // and the transcript cannot disagree.
+            //
+            // A speaker changing mid-utterance is handled separately: the
+            // diarizer forces a flush, ending this utterance and starting one.
+            if(data->utterance_speaker == HISTORY_SPEAKER_UNKNOWN) {
+                int32_t speaker = diarize_speaker_for_range(data->diarize,
+                                                            data->last_boundary_ms,
+                                                            asr_capture_ms(data));
+
+                if(speaker == HISTORY_SPEAKER_UNKNOWN) {
+                    speaker = diarize_current_speaker(data->diarize);
+                }
+
+                if(speaker != HISTORY_SPEAKER_UNKNOWN) {
+                    data->utterance_speaker = speaker;
+                    apply_speaker_label(data, speaker);
+                }
+            }
+
             line_generator_update(&data->line, count, tokens);
             if(result == APRIL_RESULT_RECOGNITION_FINAL) {
                 line_generator_finalize(&data->line);
-                commit_tokens_to_current_history(tokens, count);
+                commit_tokens_to_current_history(tokens, count, data->utterance_speaker);
+
+                data->last_boundary_ms = asr_capture_ms(data);
+                data->utterance_open = false;
             }
 
             g_mutex_unlock(&data->text_mutex);
@@ -157,6 +266,8 @@ static void april_result_handler(void* userdata, AprilResultType result, size_t 
         case APRIL_RESULT_SILENCE: {
             g_mutex_lock(&data->text_mutex);
             data->last_silence_time = time(NULL);
+            data->last_boundary_ms = asr_capture_ms(data);
+            data->utterance_open = false;
 
             line_generator_break(&data->line);
             save_silence_to_history();
@@ -172,6 +283,10 @@ void asr_thread_enqueue_audio(asr_thread thread, short *data, size_t num_shorts)
     if((thread->window == NULL) || thread->pause) return;
     if((thread->session == NULL) || (thread->model == NULL)) return;
 
+    // The diarizer sees the audio before the silence gate below, so that its
+    // clock stays continuous and matches capture_samples sample for sample
+    thread->capture_samples += num_shorts;
+    diarize_push(thread->diarize, data, num_shorts);
 
     bool found_nonzero = false;
     for(size_t i=0; i<num_shorts; i++){
@@ -232,11 +347,44 @@ asr_thread create_asr_thread(const char *model_path){
 
     g_mutex_init(&data->text_mutex);
 
+    // The model is loaded by this point, so its sample rate is known. Capture
+    // runs at that same rate, so the diarizer and the capture clock agree.
+    data->diarize = diarize_create(aam_get_sample_rate(data->model),
+                                   GET_VAD_MODEL_PATH(),
+                                   GET_SPEAKER_MODEL_PATH());
+    if(data->diarize != NULL) {
+        diarize_set_change_handler(data->diarize, on_speaker_changed, data);
+        diarize_set_match_threshold(data->diarize,
+            (float)g_settings_get_double(settings, "speaker-similarity-threshold"));
+        diarize_set_max_speakers(data->diarize,
+            g_settings_get_int(settings, "max-speakers"));
+        diarize_set_enabled(data->diarize, g_settings_get_boolean(settings, "diarization"));
+    }
+
     data->thread_id = g_thread_new("lcap-audiothread", run_asr_thread, data);
 
     data->text_stream_active = false;
+    data->utterance_speaker = HISTORY_SPEAKER_UNKNOWN;
 
     return data;
+}
+
+void asr_thread_set_diarization(asr_thread thread, bool enabled) {
+    if((thread == NULL) || (thread->diarize == NULL)) return;
+
+    diarize_set_enabled(thread->diarize, enabled);
+}
+
+void asr_thread_set_speaker_threshold(asr_thread thread, double threshold) {
+    if((thread == NULL) || (thread->diarize == NULL)) return;
+
+    diarize_set_match_threshold(thread->diarize, (float)threshold);
+}
+
+void asr_thread_set_max_speakers(asr_thread thread, int max_speakers) {
+    if((thread == NULL) || (thread->diarize == NULL)) return;
+
+    diarize_set_max_speakers(thread->diarize, max_speakers);
 }
 
 bool asr_thread_update_model(asr_thread data, const char *model_path) {
@@ -327,6 +475,11 @@ void asr_thread_flush(asr_thread thread) {
 
 void free_asr_thread(asr_thread thread) {
     thread->ending = true;
+
+    // Stopped before the session is freed, since the diarizer's change handler
+    // calls aas_flush on it
+    diarize_free(thread->diarize);
+    thread->diarize = NULL;
 
     g_mutex_lock(&thread->text_mutex);
 

@@ -75,6 +75,38 @@
         },
 
         {
+            "name": "silero-vad-model",
+            "buildsystem" : "simple",
+            "sources" : [
+                {
+                    "type" : "file",
+                    "dest-filename" : "silero_vad_v5.onnx",
+                    "url" : "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx",
+                    "sha256" : "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396"
+                }
+            ],
+            "build-commands" : [
+                "install -Dm644 silero_vad_v5.onnx -t ${FLATPAK_DEST}/LiveCaptions/models"
+            ]
+        },
+
+        {
+            "name": "speaker-embedding-model",
+            "buildsystem" : "simple",
+            "sources" : [
+                {
+                    "type" : "file",
+                    "dest-filename" : "wespeaker_en_voxceleb_CAMPP_LM.onnx",
+                    "url" : "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM%2B%2B_LM.onnx",
+                    "sha256" : "e197af7e9d473030cf486b3124149a19bf37014d0e4485e4c70c483b0ec10cb2"
+                }
+            ],
+            "build-commands" : [
+                "install -Dm644 wespeaker_en_voxceleb_CAMPP_LM.onnx -t ${FLATPAK_DEST}/LiveCaptions/models"
+            ]
+        },
+
+        {
             "name" : "livecaptions",
             "builddir" : true,
             "buildsystem" : "meson",

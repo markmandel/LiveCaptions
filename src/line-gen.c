@@ -107,6 +107,7 @@ void line_generator_init(struct line_generator *lg) {
 
     lg->current_line = 0;
     lg->active_start_of_lines[0] = 0;
+    lg->current_speaker_id = LINE_SPEAKER_UNKNOWN;
 
     if(settings == NULL) settings = g_settings_new("net.sapples.LiveCaptions");
 
@@ -292,6 +293,19 @@ void line_generator_finalize(struct line_generator *lg) {
 }
 
 void line_generator_break(struct line_generator *lg) {
+    // Drop anything the outgoing line was still in the middle of rendering.
+    //
+    // Those words came from the active token array, which the new line takes
+    // over and renders again from the start. Only lines that are still active
+    // get truncated in line_generator_update, and this one is about to stop
+    // being active, so without this the same words stay on both lines.
+    //
+    // Text that was finalized sits below start_head and is left untouched.
+    struct line *outgoing = &lg->lines[lg->current_line];
+    outgoing->text[outgoing->start_head] = '\0';
+    outgoing->head = outgoing->start_head;
+    outgoing->len = outgoing->start_len;
+
     // insert new line
     lg->current_line = REL_LINE_IDX(lg->current_line, 1);
 
@@ -307,6 +321,81 @@ void line_generator_break(struct line_generator *lg) {
     lg->lines[lg->current_line].len = 0;
     lg->lines[lg->current_line].start_head = 0;
     lg->lines[lg->current_line].start_len = 0;
+}
+
+// Distinguishable at a glance and legible on both light and dark backgrounds,
+// which matters because the caption window can be made transparent over anything
+static const char *speaker_colors[] = {
+    "#62a0ea", // blue
+    "#8ff0a4", // green
+    "#f9f06b", // yellow
+    "#ffbe6f", // orange
+    "#dc8add", // purple
+    "#99c1f1", // light blue
+    "#f66151", // red
+    "#cdab8f", // brown
+};
+
+const char *line_generator_speaker_color(int32_t speaker_id) {
+    if(speaker_id < 0) return "#ffffff";
+
+    size_t count = sizeof(speaker_colors) / sizeof(speaker_colors[0]);
+    return speaker_colors[(size_t)speaker_id % count];
+}
+
+// Writes "Name: " at the front of a line and freezes it in place
+static void write_speaker_prefix(struct line_generator *lg,
+                                 struct line *curr,
+                                 int32_t speaker_id,
+                                 const char *name)
+{
+    // The name comes from the user, so it has to be escaped before going
+    // anywhere near Pango markup
+    char *escaped = g_markup_escape_text(name, -1);
+
+    curr->head = sprintf(curr->text,
+                         "<span foreground=\"%s\" weight=\"bold\">%s:</span> ",
+                         line_generator_speaker_color(speaker_id), escaped);
+
+    g_free(escaped);
+
+    // Freeze the prefix: line_generator_update rewrites everything from
+    // start_head onwards on every token, and would otherwise erase it
+    curr->start_head = curr->head;
+
+    // The width has to count the prefix as it appears on screen, not as markup,
+    // or wrapping will run the first line past the edge of the window. The
+    // layout is not available until the first recognition result has arrived.
+    if(lg->layout != NULL) {
+        char plain[LINE_SPEAKER_NAME_MAX + 4];
+        g_snprintf(plain, sizeof(plain), "%s: ", name);
+
+        curr->len = line_generator_get_text_width(lg, plain);
+    }
+
+    curr->start_len = curr->len;
+}
+
+void line_generator_set_speaker(struct line_generator *lg,
+                                int32_t speaker_id,
+                                const char *name)
+{
+    if(speaker_id == lg->current_speaker_id) return;
+
+    lg->current_speaker_id = speaker_id;
+
+    // A change of speaker always starts a new line, named or not.
+    //
+    // This works just as well part way through an utterance as at its start:
+    // the break points the active token array at the new line, so the words
+    // recognised so far move across and reflow after the name. That matters
+    // because the diarizer usually needs about a second of speech before it can
+    // say who is talking, by which time the utterance is already on screen.
+    line_generator_break(lg);
+
+    if((speaker_id == LINE_SPEAKER_UNKNOWN) || (name == NULL) || (name[0] == '\0')) return;
+
+    write_speaker_prefix(lg, &lg->lines[lg->current_line], speaker_id, name);
 }
 
 void line_generator_set_text(struct line_generator *lg, GtkLabel *lbl) {
@@ -330,8 +419,6 @@ void line_generator_set_language(struct line_generator *lg, const char* language
 }
 
 const char *line_generator_get_plaintext(struct line_generator *lg) {
-    bool use_fade = g_settings_get_boolean(settings, "fade-text");
-
     char *head = &lg->plaintext[0];
     *head = '\0';
 
@@ -339,24 +426,24 @@ const char *line_generator_get_plaintext(struct line_generator *lg) {
     for(int i=display_count-1; i>=0; i--) {
         struct line *curr = &lg->lines[REL_LINE_IDX(lg->current_line, -i)];
 
-        if(!use_fade) {
-            head += sprintf(head, "%s", curr->text);
-        } else {
-            // HACK: We need to remove the <span...></span> tags
-            bool inside_markup = false;
-            for(int j=0; j<curr->head; j++) {
-                if(curr->text[j] == '<') {
-                    inside_markup = true;
-                    continue;
-                }else if(curr->text[j] == '>') {
-                    inside_markup = false;
-                    continue;
-                }else if(inside_markup) {
-                    continue;
-                }
-
-                head += sprintf(head, "%c", curr->text[j]);
+        // HACK: We need to remove the <span...></span> tags
+        //
+        // Done unconditionally rather than only when text fading is on: a
+        // speaker name is also written as markup, so checking that one setting
+        // is no longer enough to know whether the line contains tags.
+        bool inside_markup = false;
+        for(int j=0; j<curr->head; j++) {
+            if(curr->text[j] == '<') {
+                inside_markup = true;
+                continue;
+            }else if(curr->text[j] == '>') {
+                inside_markup = false;
+                continue;
+            }else if(inside_markup) {
+                continue;
             }
+
+            head += sprintf(head, "%c", curr->text[j]);
         }
 
         if(i != 0) head += sprintf(head, "\n");

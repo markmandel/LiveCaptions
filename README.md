@@ -30,6 +30,41 @@ Running this requires a somewhat-decent CPU that can perform realtime captioning
 
 GPU is not required or used.
 
+## Speaker identification
+Live Captions labels who is speaking, turning a wall of text into an attributed
+transcript. It is on by default; turn off "Identify Speakers" in the settings to
+save a little CPU.
+
+This uses two extra models, which run entirely on your machine like the ASR model,
+and which the Flatpak build bundles for you. Nothing is ever sent anywhere.
+
+If you are building from the terminal, fetch them yourself and point the
+application at them:
+```
+$ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx
+$ wget -O wespeaker_en_voxceleb_CAMPP_LM.onnx \
+    'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM%2B%2B_LM.onnx'
+
+$ export VAD_MODEL_PATH=`pwd`/silero_vad_v5.onnx
+$ export SPEAKER_MODEL_PATH=`pwd`/wespeaker_en_voxceleb_CAMPP_LM.onnx
+```
+
+Verify them before use:
+```
+6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396  silero_vad_v5.onnx
+e197af7e9d473030cf486b3124149a19bf37014d0e4485e4c70c483b0ec10cb2  wespeaker_en_voxceleb_CAMPP_LM.onnx
+```
+
+If the models are missing the application still captions as usual, it just does
+not attribute anything.
+
+`src/diarize-test` is a small offline harness for checking how well speakers are
+separated on a given recording, without launching the interface:
+```
+$ ./_build/src/diarize-test recording.wav
+```
+It takes 16-bit mono WAV. Set `LIVECAPTIONS_DIARIZE_DEBUG=1` to see each decision.
+
 ## Accuracy
 The live captions may not be accurate. It may make mistakes, including when it comes to numbers. Please do not rely on the results for anything critical or important.
 

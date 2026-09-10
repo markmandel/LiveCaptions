@@ -177,6 +177,12 @@ static void on_silence_timeout_value_changed(GtkAdjustment *adjustment, LiveCapt
     g_free(text);
 }
 
+static void on_speaker_threshold_value_changed(GtkAdjustment *adjustment, LiveCaptionsSettings *self) {
+    char *text = g_strdup_printf("%.2f", gtk_adjustment_get_value(adjustment));
+    gtk_label_set_text(self->speaker_threshold_label, text);
+    g_free(text);
+}
+
 static void on_builtin_toggled(LiveCaptionsSettings *self);
 
 static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
@@ -208,6 +214,10 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, silence_timeout_scale);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, silence_timeout_adjustment);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, silence_timeout_label);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, diarization_switch);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, speaker_threshold_scale);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, speaker_threshold_adjustment);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, speaker_threshold_label);
 
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, benchmark_label);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, keep_above_instructions);
@@ -218,6 +228,7 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
 
     gtk_widget_class_bind_template_callback (widget_class, report_cb);
     gtk_widget_class_bind_template_callback (widget_class, on_silence_timeout_value_changed);
+    gtk_widget_class_bind_template_callback (widget_class, on_speaker_threshold_value_changed);
     gtk_widget_class_bind_template_callback (widget_class, about_cb);
     gtk_widget_class_bind_template_callback (widget_class, rerun_benchmark_cb);
     gtk_widget_class_bind_template_callback (widget_class, open_history);
@@ -434,12 +445,17 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     on_silence_timeout_value_changed(self->silence_timeout_adjustment, self);
     g_settings_bind(self->settings, "text-stream-active", self->text_stream_switch, "active", G_SETTINGS_BIND_DEFAULT);
 
+    g_settings_bind(self->settings, "diarization", self->diarization_switch, "active", G_SETTINGS_BIND_DEFAULT);
+    g_settings_bind(self->settings, "speaker-similarity-threshold", self->speaker_threshold_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
+    on_speaker_threshold_value_changed(self->speaker_threshold_adjustment, self);
+
     g_settings_bind(self->settings, "font-name", self->font_button, "font", G_SETTINGS_BIND_DEFAULT);
 
     gtk_scale_add_mark(self->line_width_scale, 50.0, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->window_transparency_scale, 0.25, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->line_count_scale, 8.0, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->silence_timeout_scale, 6.0, GTK_POS_TOP, NULL);
+    gtk_scale_add_mark(self->speaker_threshold_scale, 0.55, GTK_POS_TOP, NULL);
 
     char benchmark_result[32];
     double benchmark_result_v = g_settings_get_double(self->settings, "benchmark");

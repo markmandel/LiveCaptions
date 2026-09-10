@@ -68,6 +68,54 @@
             </child>
 
             <child>
+              <object class="AdwSwitchRow" id="diarization_switch">
+                <property name="title" translatable="yes">Identify Speakers</property>
+                <property name="subtitle" translatable="yes">Label who is speaking. Uses a little extra CPU.</property>
+              </object>
+            </child>
+
+            <child>
+              <object class="AdwActionRow">
+                <property name="title" translatable="yes">Voice Matching</property>
+                <property name="subtitle" translatable="yes">Higher tells similar voices apart, lower avoids splitting one person in two</property>
+
+                <child type="suffix">
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">8</property>
+
+                    <child>
+                      <object class="GtkScale" id="speaker_threshold_scale">
+                        <property name="visible">True</property>
+                        <property name="valign">center</property>
+                        <property name="width-request">200</property>
+                        <property name="digits">2</property>
+                        <property name="adjustment">
+                          <object class="GtkAdjustment" id="speaker_threshold_adjustment">
+                            <property name="lower">0.35</property>
+                            <property name="upper">0.85</property>
+                            <property name="step-increment">0.01</property>
+                            <property name="page-increment">0.05</property>
+                            <signal name="value-changed" handler="on_speaker_threshold_value_changed" swapped="no"/>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object class="GtkLabel" id="speaker_threshold_label">
+                        <property name="visible">True</property>
+                        <property name="valign">center</property>
+                        <property name="width-chars">10</property>
+                        <property name="xalign">1.0</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <child>
               <object class="AdwActionRow">
                 <property name="title" translatable="yes">Window Width</property>
 

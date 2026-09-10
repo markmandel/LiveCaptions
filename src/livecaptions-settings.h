@@ -53,6 +53,11 @@ struct _LiveCaptionsSettings {
     GtkAdjustment *silence_timeout_adjustment;
     GtkLabel *silence_timeout_label;
 
+    GtkWidget *diarization_switch;
+    GtkScale *speaker_threshold_scale;
+    GtkAdjustment *speaker_threshold_adjustment;
+    GtkLabel *speaker_threshold_label;
+
     GtkLabel *benchmark_label;
     GtkLabel *keep_above_instructions;
 
