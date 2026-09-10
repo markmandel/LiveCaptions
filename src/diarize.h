@@ -29,10 +29,14 @@
 #define DIARIZE_SPEAKER_UNKNOWN (-1)
 
 // Cosine similarity above which two stretches of speech are treated as the same
-// person. Measured against the CAM++ reference clips, same-speaker pairs scored
-// 0.64 to 0.82 and different-speaker pairs 0.09 to 0.51, so this sits in the gap
-// while leaving room for the harder case of two similar voices.
-#define DIARIZE_DEFAULT_THRESHOLD 0.55f
+// person, for a full-length window. Shorter windows are held to a proportionally
+// lower bar; see effective_threshold in diarize.c.
+//
+// Measured on three seconds of speech, the same person scored 0.56 to 0.74 and
+// two different people 0.24 to 0.37, so this sits between the two with room on
+// either side. Raise it to tell similar voices apart, lower it if one person
+// keeps being split in two.
+#define DIARIZE_DEFAULT_THRESHOLD 0.50f
 
 struct diarize_state_i;
 typedef struct diarize_state_i * diarize_state;

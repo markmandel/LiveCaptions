@@ -455,7 +455,7 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     gtk_scale_add_mark(self->window_transparency_scale, 0.25, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->line_count_scale, 8.0, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->silence_timeout_scale, 6.0, GTK_POS_TOP, NULL);
-    gtk_scale_add_mark(self->speaker_threshold_scale, 0.55, GTK_POS_TOP, NULL);
+    gtk_scale_add_mark(self->speaker_threshold_scale, 0.50, GTK_POS_TOP, NULL);
 
     char benchmark_result[32];
     double benchmark_result_v = g_settings_get_double(self->settings, "benchmark");

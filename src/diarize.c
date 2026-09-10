@@ -61,9 +61,27 @@
 #define DIARIZE_EMBED_WINDOW_MS 3000
 
 // Speech required before the diarizer is willing to declare a voice it has not
-// heard before. A short window produces an unstable embedding, and inventing a
-// speaker is the more damaging mistake: it splits one person's transcript in
-// two, where a wrong match merely mislabels a line.
+// heard before.
+//
+// Measured against the reference clips, similarity between two windows of the
+// same person falls off sharply as the windows get shorter, while the spread
+// for different people barely moves:
+//
+//   window   same speaker      different speaker
+//    500ms   0.08 .. 0.39      -0.08 .. 0.32
+//   1000ms   0.19 .. 0.53       0.01 .. 0.31
+//   1500ms   0.42 .. 0.59       0.11 .. 0.33
+//   2000ms   0.49 .. 0.74       0.12 .. 0.30
+//   3000ms   0.56 .. 0.74       0.24 .. 0.37
+//
+// At and below one second the two ranges overlap, so no threshold can tell the
+// cases apart and any decision there is noise. A second and a half is the
+// shortest length with a dependable gap between them, and it has to stay that
+// low because plenty of real turns never get any longer than that.
+//
+// Inventing a speaker is the more damaging mistake, splitting one person's
+// transcript into several where a wrong match merely mislabels a line, so the
+// bar itself scales with the window: see effective_threshold.
 #define DIARIZE_NEW_SPEAKER_MIN_MS 1500
 
 // A turn shorter than DIARIZE_EMBED_MIN_MS is still worth embedding when it ends,
@@ -84,17 +102,16 @@
 
 #define DIARIZE_MAX_SPEAKERS 16
 
-// The match threshold doubles as the new-speaker threshold: measured against the
-// CAM++ reference clips, same-speaker pairs never fell below 0.64 and
-// different-speaker pairs never rose above 0.51, so one boundary in that gap
-// separates both ways and an "uncertain" band in between would only invent
-// speakers out of noise.
-#define DIARIZE_NEW_MARGIN 0.0f
+// Fraction of the configured threshold that applies to the shortest window
+// worth embedding. Similarity between two windows of the same voice drops with
+// their length (see the table above), so a bar set for three seconds of speech
+// would reject that same voice out of hand at one second.
+#define DIARIZE_SHORT_WINDOW_SCALE 0.65f
 
-// How far below the threshold counts as "plainly somebody else" rather than
-// "probably somebody else". Different-speaker pairs measured at most 0.51, so
-// anything under roughly 0.40 is not a close call.
-#define DIARIZE_CLEAR_NEW_MARGIN 0.15f
+// Extra margin demanded before the floor is declared to have changed part way
+// through somebody's turn, where the prior strongly favours it being the same
+// person still talking
+#define DIARIZE_MID_TURN_MARGIN 0.10f
 
 // Matches above this are confident enough to fold into the speaker's centroid.
 // Anything weaker is still reported, but is kept out of the model of that voice
@@ -447,6 +464,24 @@ void diarize_flush(diarize_state d) {
 
 // Matches an embedding against the speakers heard so far, adding a new one when
 // nothing is close enough. Returns the speaker id, and the similarity it scored.
+// Similarity required to call two stretches of speech the same person, scaled
+// by how much speech went into the embedding.
+//
+// The configured threshold is calibrated for a full window. Shorter windows
+// score systematically lower even for one unchanging voice, so holding them to
+// the same bar rejects people from themselves, which is what fragments a
+// monologue into a crowd.
+static float effective_threshold(diarize_state d, uint64_t speech_ms) {
+    if(speech_ms >= DIARIZE_EMBED_WINDOW_MS) return d->match_threshold;
+    if(speech_ms <= DIARIZE_EMBED_MIN_MS) return d->match_threshold * DIARIZE_SHORT_WINDOW_SCALE;
+
+    float across = (float)(speech_ms - DIARIZE_EMBED_MIN_MS)
+                 / (float)(DIARIZE_EMBED_WINDOW_MS - DIARIZE_EMBED_MIN_MS);
+
+    return d->match_threshold * (DIARIZE_SHORT_WINDOW_SCALE
+                                 + (1.0f - DIARIZE_SHORT_WINDOW_SCALE) * across);
+}
+
 static int32_t classify(diarize_state d,
                         const float *embedding,
                         uint64_t speech_ms,
@@ -470,41 +505,16 @@ static int32_t classify(diarize_state d,
 
     *out_similarity = best_similarity;
 
-    float new_threshold = d->match_threshold - DIARIZE_NEW_MARGIN;
+    float threshold = effective_threshold(d, speech_ms);
     float update_threshold = d->match_threshold + DIARIZE_UPDATE_MARGIN;
 
     bool room_for_more = (int)d->num_speakers < d->max_speakers;
 
-    // Two tiers. Well below the threshold the voice plainly belongs to nobody
-    // known, and is accepted as new however short the window. Just below it the
-    // evidence is weak, so a new speaker is only created when there was enough
-    // speech to trust the embedding; otherwise the closest match is used.
-    bool clearly_new = best_similarity < (new_threshold - DIARIZE_CLEAR_NEW_MARGIN);
-    bool marginally_new = (best_similarity < new_threshold)
-                       && (speech_ms >= DIARIZE_NEW_SPEAKER_MIN_MS);
+    // Nobody to compare against yet, so the first voice of the session becomes
+    // speaker one whatever the window length: there has to be a speaker one
+    if(best_id == DIARIZE_SPEAKER_UNKNOWN) {
+        if(!allow_new || !room_for_more) return DIARIZE_SPEAKER_UNKNOWN;
 
-    // Partway through somebody's turn, a marginal score is far more likely to be
-    // the same person sounding a little different than a new person who started
-    // talking without a pause. Only an unmistakably different voice introduces a
-    // speaker here; a real handover gets its own turn at the next pause anyway.
-    if(mid_turn) marginally_new = false;
-
-    // Callers working from a scrap of audio cannot introduce anyone: the
-    // embedding is only reliable enough to pick between voices already known
-    if(!allow_new) {
-        clearly_new = false;
-        marginally_new = false;
-
-        if(best_id == DIARIZE_SPEAKER_UNKNOWN) return DIARIZE_SPEAKER_UNKNOWN;
-    }
-
-    if((best_id == DIARIZE_SPEAKER_UNKNOWN)
-        || (room_for_more && (clearly_new || marginally_new))) {
-        if((best_id == DIARIZE_SPEAKER_UNKNOWN) && !room_for_more) {
-            return DIARIZE_SPEAKER_UNKNOWN;
-        }
-
-        // Nobody close enough, so this is someone new
         int32_t id = (int32_t)d->num_speakers;
 
         struct diarize_speaker *speaker = &d->speakers[id];
@@ -517,10 +527,50 @@ static int32_t classify(diarize_state d,
         return id;
     }
 
-    // Only fold confident matches into the centroid. Anything in between is
-    // reported but left out of the model of that voice, so an uncertain match
-    // cannot drag a centroid onto the wrong speaker.
-    if(best_similarity >= update_threshold) {
+    // Introducing a speaker takes a long enough window to be worth believing.
+    // Everything shorter can only pick between voices already known, because at
+    // those lengths the same person and a different one score alike.
+    float new_bar = mid_turn ? (threshold - DIARIZE_MID_TURN_MARGIN) : threshold;
+
+    bool is_new = allow_new
+               && room_for_more
+               && (speech_ms >= DIARIZE_NEW_SPEAKER_MIN_MS)
+               && (best_similarity < new_bar);
+
+    if(is_new) {
+        int32_t id = (int32_t)d->num_speakers;
+
+        struct diarize_speaker *speaker = &d->speakers[id];
+        memcpy(speaker->centroid, embedding, (size_t)d->embed_dim * sizeof(float));
+        speaker->updates = 1;
+        speaker->active = true;
+
+        d->num_speakers += 1;
+
+        return id;
+    }
+
+    if(best_similarity < threshold) {
+        // Weak match. A scrap of audio too short to introduce anyone, in a
+        // session where only one voice has ever been heard, has nothing it
+        // could be confused with, so attribute it rather than lose a short
+        // remark from the transcript.
+        //
+        // Anything else says nothing: an unattributed stretch leaves the
+        // previous label standing, whereas guessing here would either split one
+        // person's transcript or swallow a new speaker into somebody else's.
+        // In particular a window long enough to have been a new speaker must
+        // not land here, or the second person to talk is merged into the first.
+        bool only_one_voice_so_far = (d->num_speakers == 1) && !allow_new;
+
+        if(!only_one_voice_so_far) return DIARIZE_SPEAKER_UNKNOWN;
+    }
+
+    // Only fold confident matches from a decent stretch of speech into the
+    // centroid. Anything weaker is still reported, but is kept out of the model
+    // of that voice so a marginal or noisy match cannot drag it onto the wrong
+    // person.
+    if((best_similarity >= update_threshold) && (speech_ms >= DIARIZE_NEW_SPEAKER_MIN_MS)) {
         struct diarize_speaker *speaker = &d->speakers[best_id];
 
         float rate = 1.0f / (float)(speaker->updates + 1);

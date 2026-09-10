@@ -96,7 +96,7 @@
         </key>
 
         <key name="speaker-similarity-threshold" type="d">
-            <default>0.55</default>
+            <default>0.50</default>
             <summary>How similar two voices must sound to be treated as the same speaker</summary>
             <range min="0.35" max="0.85"/>
         </key>
