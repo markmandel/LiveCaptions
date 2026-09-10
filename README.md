@@ -58,14 +58,14 @@ You can build this easily with GNOME Builder. After cloning, open the project di
 If you are using Flatpak GNOME Builder and experience issues running this (for example, some cryptic X Window System error), please try using your distro's native packaged version of GNOME Builder instead of Flatpak (e.g. `sudo apt install gnome-builder`).
 
 ## Option 2: Building from the terminal (not as easy)
-First you must [download ONNXRuntime v1.28.0 (Linux)](https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-linux-x64-1.28.0.tgz) or [ONNXRuntime v1.28.0 (Mac OS arm64)](https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-osx-arm64-1.28.0.tgz), extract it somewhere, and set the environment variables to point to it.
+First you must [download ONNXRuntime v1.30.0 (Linux)](https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-linux-x64-1.30.0.tgz) or [ONNXRuntime v1.30.0 (Mac OS arm64)](https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-osx-arm64-1.30.0.tgz), extract it somewhere, and set the environment variables to point to it.
 
 ### Make ONNX available
 
 Linux:
 ```
-$ export ONNX_ROOT=/path/to/onnxruntime-linux-x64-1.28.0/
-$ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/path/to/onnxruntime-linux-x64-1.28.0/lib
+$ export ONNX_ROOT=/path/to/onnxruntime-linux-x64-1.30.0/
+$ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/path/to/onnxruntime-linux-x64-1.30.0/lib
 ```
 
 Alternatively you should also be able to locally build and install ONNXRuntime, in which case that step shouldn't be necessary.
@@ -73,9 +73,9 @@ Alternatively you should also be able to locally build and install ONNXRuntime, 
 
 Mac OS:
 ```
-$ export ONNX_ROOT=/path/to/onnxruntime-osx-arm64-1.28.0/
-$ cp /path/to/onnxruntime-osx-arm64-1.28.0/lib/libonnxruntime.1.28.0.dylib /usr/local/lib/libonnxruntime.1.28.0.dylib
-$ cp /path/to/onnxruntime-osx-arm64-1.28.0/lib/libonnxruntime.dylib /usr/local/lib/libonnxruntime.dylib
+$ export ONNX_ROOT=/path/to/onnxruntime-osx-arm64-1.30.0/
+$ cp /path/to/onnxruntime-osx-arm64-1.30.0/lib/libonnxruntime.1.30.0.dylib /usr/local/lib/libonnxruntime.1.30.0.dylib
+$ cp /path/to/onnxruntime-osx-arm64-1.30.0/lib/libonnxruntime.dylib /usr/local/lib/libonnxruntime.dylib
 ```
 
 ### Other dependencies
