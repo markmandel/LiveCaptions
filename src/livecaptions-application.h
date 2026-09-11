@@ -68,6 +68,10 @@ void livecaptions_application_ask_speaker_name(LiveCaptionsApplication *self,
                                                LiveCaptionsSpeakerNamed done,
                                                gpointer userdata);
 
+size_t livecaptions_application_get_speaker_spans(LiveCaptionsApplication *self,
+                                                  struct line_speaker_span *out,
+                                                  size_t max);
+
 size_t livecaptions_application_voice_count(LiveCaptionsApplication *self);
 void livecaptions_application_forget_voices(LiveCaptionsApplication *self);
 

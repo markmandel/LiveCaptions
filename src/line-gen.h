@@ -56,7 +56,8 @@ struct line {
     // name takes up. Kept so a rename can rewrite lines already on screen
     // instead of only applying to whatever is said next.
     int32_t speaker_id;
-    size_t prefix_len;
+    size_t prefix_len;    // bytes of markup
+    size_t prefix_text_len; // bytes as displayed, which is what a click sees
     size_t prefix_width;
 };
 
@@ -64,9 +65,14 @@ struct line {
 #define LINE_SPEAKER_UNKNOWN (-1)
 #define LINE_SPEAKER_NAME_MAX 64
 
-// Speaker names are rendered as links so they can be clicked in the caption
-// window. The scheme is our own, so activate-link can tell them from a real URL.
-#define LINE_SPEAKER_URI_PREFIX "livecaptions-speaker:"
+// Where a speaker's name sits in the text the caption label displays, so the
+// window can work out whether a click landed on one. Offsets are into the
+// markup-stripped text, which is what Pango lays out.
+struct line_speaker_span {
+    size_t line_start;  // first byte of the line the name opens
+    size_t name_end;    // one past the last byte of "Name: "
+    int32_t speaker_id;
+};
 
 struct line_generator {
     size_t current_line;
@@ -82,6 +88,11 @@ struct line_generator {
 
     char output[AC_LINE_MAX * AC_LINE_COUNT];
     char plaintext[AC_LINE_MAX * AC_LINE_COUNT];
+
+    // Filled in as the caption text is composed, so it always describes what is
+    // actually on screen
+    struct line_speaker_span speaker_spans[AC_LINE_COUNT];
+    size_t num_speaker_spans;
 
     PangoLayout *layout;
     int max_text_width;
@@ -107,6 +118,12 @@ void line_generator_set_speaker(struct line_generator *lg,
 bool line_generator_rename_speaker(struct line_generator *lg,
                                    int32_t speaker_id,
                                    const char *name);
+
+// Where each visible speaker name is, refreshed whenever the caption text is
+// composed. Returns how many were written.
+size_t line_generator_get_speaker_spans(struct line_generator *lg,
+                                        struct line_speaker_span *out,
+                                        size_t max);
 
 // The colour used for a speaker's name, as a Pango colour string
 const char *line_generator_speaker_color(int32_t speaker_id);

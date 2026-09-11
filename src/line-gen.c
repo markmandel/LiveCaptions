@@ -105,6 +105,7 @@ void line_generator_init(struct line_generator *lg) {
         lg->lines[i].start_len = 0;
         lg->lines[i].speaker_id = LINE_SPEAKER_UNKNOWN;
         lg->lines[i].prefix_len = 0;
+        lg->lines[i].prefix_text_len = 0;
         lg->lines[i].prefix_width = 0;
     }
 
@@ -116,6 +117,8 @@ void line_generator_init(struct line_generator *lg) {
 
     token_capitalizer_init(&lg->tcap);
 }
+
+static const char *compose_plaintext(struct line_generator *lg);
 
 static int line_generator_get_text_width(struct line_generator *lg, const char *text){
     pango_layout_set_width(lg->layout, -1);
@@ -326,6 +329,7 @@ void line_generator_break(struct line_generator *lg) {
     lg->lines[lg->current_line].start_len = 0;
     lg->lines[lg->current_line].speaker_id = LINE_SPEAKER_UNKNOWN;
     lg->lines[lg->current_line].prefix_len = 0;
+    lg->lines[lg->current_line].prefix_text_len = 0;
     lg->lines[lg->current_line].prefix_width = 0;
 }
 
@@ -363,10 +367,8 @@ static void write_speaker_prefix(struct line_generator *lg,
     // otherwise paint it in the theme's link colour with an underline, which
     // would lose the per-speaker colour, so the inner span overrides both.
     curr->head = sprintf(curr->text,
-                         "<a href=\"" LINE_SPEAKER_URI_PREFIX "%d\">"
-                         "<span foreground=\"%s\" weight=\"bold\" underline=\"none\">%s:</span>"
-                         "</a> ",
-                         speaker_id, line_generator_speaker_color(speaker_id), escaped);
+                         "<span foreground=\"%s\" weight=\"bold\">%s:</span> ",
+                         line_generator_speaker_color(speaker_id), escaped);
 
     g_free(escaped);
 
@@ -374,6 +376,7 @@ static void write_speaker_prefix(struct line_generator *lg,
     // start_head onwards on every token, and would otherwise erase it
     curr->start_head = curr->head;
     curr->prefix_len = curr->head;
+    curr->prefix_text_len = strlen(name) + 2; // the name, then ": "
     curr->speaker_id = speaker_id;
 
     // The width has to count the prefix as it appears on screen, not as markup,
@@ -403,10 +406,8 @@ bool line_generator_rename_speaker(struct line_generator *lg,
 
     char prefix[AC_LINE_MAX];
     int prefix_len = g_snprintf(prefix, sizeof(prefix),
-                                "<a href=\"" LINE_SPEAKER_URI_PREFIX "%d\">"
-                                "<span foreground=\"%s\" weight=\"bold\" underline=\"none\">%s:</span>"
-                                "</a> ",
-                                speaker_id, line_generator_speaker_color(speaker_id), escaped);
+                                "<span foreground=\"%s\" weight=\"bold\">%s:</span> ",
+                                line_generator_speaker_color(speaker_id), escaped);
 
     g_free(escaped);
 
@@ -444,6 +445,7 @@ bool line_generator_rename_speaker(struct line_generator *lg,
         curr->start_len = (size_t)((ssize_t)curr->start_len + width_delta);
 
         curr->prefix_len = (size_t)prefix_len;
+        curr->prefix_text_len = strlen(name) + 2;
         curr->prefix_width = width;
 
         changed = true;
@@ -487,6 +489,10 @@ void line_generator_set_text(struct line_generator *lg, GtkLabel *lbl) {
     }
 
     gtk_label_set_markup(lbl, lg->output);
+
+    // Refresh where the names are, so a click can be matched against what was
+    // just put on screen
+    compose_plaintext(lg);
 }
 
 void line_generator_set_language(struct line_generator *lg, const char* language) {
@@ -494,13 +500,31 @@ void line_generator_set_language(struct line_generator *lg, const char* language
     lg->tcap.is_english = lg->is_english;
 }
 
-const char *line_generator_get_plaintext(struct line_generator *lg) {
+// Builds the markup-stripped text, and while doing so records where each
+// speaker's name ends up. Pango lays out this same text, so these offsets are
+// what a click on the label has to be compared against.
+static const char *compose_plaintext(struct line_generator *lg) {
     char *head = &lg->plaintext[0];
     *head = '\0';
+
+    lg->num_speaker_spans = 0;
 
     int display_count = g_settings_get_int(settings, "num-lines");
     for(int i=display_count-1; i>=0; i--) {
         struct line *curr = &lg->lines[REL_LINE_IDX(lg->current_line, -i)];
+
+        size_t line_start = (size_t)(head - &lg->plaintext[0]);
+
+        if((curr->prefix_text_len > 0)
+            && (curr->speaker_id != LINE_SPEAKER_UNKNOWN)
+            && (lg->num_speaker_spans < AC_LINE_COUNT)) {
+
+            struct line_speaker_span *span = &lg->speaker_spans[lg->num_speaker_spans++];
+
+            span->line_start = line_start;
+            span->name_end = line_start + curr->prefix_text_len;
+            span->speaker_id = curr->speaker_id;
+        }
 
         // HACK: We need to remove the <span...></span> tags
         //
@@ -526,4 +550,21 @@ const char *line_generator_get_plaintext(struct line_generator *lg) {
     }
 
     return &lg->plaintext[0];
+}
+
+const char *line_generator_get_plaintext(struct line_generator *lg) {
+    return compose_plaintext(lg);
+}
+
+size_t line_generator_get_speaker_spans(struct line_generator *lg,
+                                        struct line_speaker_span *out,
+                                        size_t max)
+{
+    if((lg == NULL) || (out == NULL)) return 0;
+
+    size_t count = (lg->num_speaker_spans < max) ? lg->num_speaker_spans : max;
+
+    for(size_t i=0; i<count; i++) out[i] = lg->speaker_spans[i];
+
+    return count;
 }

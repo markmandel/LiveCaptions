@@ -21,6 +21,7 @@
 #pragma once
 
 #include <adwaita.h>
+#include "line-gen.h"
 
 struct _LiveCaptionsWindow;
 
@@ -43,6 +44,12 @@ void asr_thread_set_speaker_threshold(asr_thread thread, double threshold);
 // Names a speaker: updates the live captions, the saved transcript, and the
 // stored voice profile so the name is recognised in later sessions
 void asr_thread_rename_speaker(asr_thread thread, int32_t speaker_id, const char *name);
+
+// Where each speaker name currently sits in the caption text, so a click on the
+// caption label can be matched against one
+size_t asr_thread_get_speaker_spans(asr_thread thread,
+                                    struct line_speaker_span *out,
+                                    size_t max);
 
 // How many voices are remembered from this and earlier sessions
 size_t asr_thread_voice_count(asr_thread thread);

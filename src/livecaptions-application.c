@@ -343,6 +343,14 @@ void livecaptions_application_ask_speaker_name(LiveCaptionsApplication *self,
     gtk_window_present(GTK_WINDOW(dialog));
 }
 
+size_t livecaptions_application_get_speaker_spans(LiveCaptionsApplication *self,
+                                                  struct line_speaker_span *out,
+                                                  size_t max)
+{
+    if((self == NULL) || (self->asr == NULL)) return 0;
+    return asr_thread_get_speaker_spans(self->asr, out, max);
+}
+
 size_t livecaptions_application_voice_count(LiveCaptionsApplication *self) {
     if((self == NULL) || (self->asr == NULL)) return 0;
     return asr_thread_voice_count(self->asr);

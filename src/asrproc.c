@@ -548,6 +548,19 @@ void asr_thread_rename_speaker(asr_thread thread, int32_t speaker_id, const char
     }
 }
 
+size_t asr_thread_get_speaker_spans(asr_thread thread,
+                                    struct line_speaker_span *out,
+                                    size_t max)
+{
+    if((thread == NULL) || (out == NULL)) return 0;
+
+    g_mutex_lock(&thread->text_mutex);
+    size_t count = line_generator_get_speaker_spans(&thread->line, out, max);
+    g_mutex_unlock(&thread->text_mutex);
+
+    return count;
+}
+
 size_t asr_thread_voice_count(asr_thread thread) {
     if((thread == NULL) || (thread->speakers == NULL)) return 0;
     return speaker_db_count(thread->speakers);

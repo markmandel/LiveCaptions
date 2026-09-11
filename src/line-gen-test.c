@@ -153,15 +153,35 @@ int main(void) {
         check_no_duplicate("short rename", after, "welcome");
         check_contains("the words survived both renames", after, "first of all");
 
-        // The name is a link, so it can be clicked in the caption window
-        const char *markup = lg2.lines[lg2.current_line].text;
-        check_contains("the name is a link", markup, LINE_SPEAKER_URI_PREFIX);
+        // The window hit-tests clicks against these, so they have to describe
+        // where the name actually landed in the text Pango lays out
+        const char *plain = line_generator_get_plaintext(&lg2);
 
-        if(strstr(line_generator_get_plaintext(&lg2), "href") != NULL) {
-            printf("  FAIL link markup leaks into the plain text stream\n");
+        struct line_speaker_span spans[AC_LINE_COUNT];
+        size_t num_spans = line_generator_get_speaker_spans(&lg2, spans, G_N_ELEMENTS(spans));
+
+        check_contains("a span was recorded", num_spans > 0 ? "yes" : "", "yes");
+
+        if(num_spans > 0) {
+            bool sane = (spans[0].name_end > spans[0].line_start)
+                     && (spans[0].name_end <= strlen(plain))
+                     && (spans[0].speaker_id == 0);
+            check_contains("the span is within the text", sane ? "yes" : "", "yes");
+
+            // "Jo: " is what the span should cover
+            char covered[64] = { 0 };
+            size_t len = spans[0].name_end - spans[0].line_start;
+            if(len < sizeof(covered)) memcpy(covered, plain + spans[0].line_start, len);
+
+            printf("  span covers: \"%s\"\n", covered);
+            check_contains("the span covers the name", covered, "Jo:");
+        }
+
+        if(strstr(plain, "span ") != NULL) {
+            printf("  FAIL markup leaks into the plain text stream\n");
             failures++;
         } else {
-            printf("  ok   link markup is stripped from the plain text stream\n");
+            printf("  ok   markup is stripped from the plain text stream\n");
         }
     }
 

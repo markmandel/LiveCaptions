@@ -191,36 +191,105 @@ static gboolean show_relevant_slow_warning(void *userdata) {
     return G_SOURCE_CONTINUE;
 }
 
-// Speaker names in the captions are links, so clicking one offers to name that
-// speaker without having to open the transcript window first
-static gboolean on_caption_link(GtkLabel *label, const char *uri, LiveCaptionsWindow *self) {
-    (void)label;
+// How far past a speaker's name a click still counts, in pixels. The name is
+// small and sits among moving text, so the target is deliberately forgiving.
+#define SPEAKER_HIT_SLACK 8
 
-    if(!g_str_has_prefix(uri, LINE_SPEAKER_URI_PREFIX)) return FALSE;
+// Works out whether a point on the caption label lands on a speaker's name.
+//
+// The whole run from the start of the line through the end of the name counts,
+// not just the glyphs, so that clipping the edge of a letter does not miss.
+static bool caption_speaker_at(LiveCaptionsWindow *self, double x, double y, int32_t *out_id) {
+    GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
+    if(app == NULL) return false;
 
-    const char *id_text = uri + strlen(LINE_SPEAKER_URI_PREFIX);
+    struct line_speaker_span spans[AC_LINE_COUNT];
+    size_t count = livecaptions_application_get_speaker_spans(LIVECAPTIONS_APPLICATION(app),
+                                                              spans, G_N_ELEMENTS(spans));
 
-    char *end = NULL;
-    long speaker_id = strtol(id_text, &end, 10);
+    if(count == 0) return false;
 
-    if((end == id_text) || (speaker_id < 0)) return TRUE;
+    PangoLayout *layout = gtk_label_get_layout(self->label);
+    if(layout == NULL) return false;
+
+    int offset_x = 0, offset_y = 0;
+    gtk_label_get_layout_offsets(self->label, &offset_x, &offset_y);
+
+    int layout_width = 0, layout_height = 0;
+    pango_layout_get_pixel_size(layout, &layout_width, &layout_height);
+
+    double local_x = x - offset_x;
+    double local_y = y - offset_y;
+
+    // Outside the text entirely. Without this, a click above the first line
+    // would be pulled onto it and count as hitting whoever is named there.
+    if((local_y < -SPEAKER_HIT_SLACK) || (local_y > (layout_height + SPEAKER_HIT_SLACK))) return false;
+    if((local_x < -SPEAKER_HIT_SLACK) || (local_x > (layout_width + SPEAKER_HIT_SLACK))) return false;
+
+    int index = 0, trailing = 0;
+    pango_layout_xy_to_index(layout,
+                             (int)(local_x * PANGO_SCALE),
+                             (int)(local_y * PANGO_SCALE),
+                             &index, &trailing);
+
+    for(size_t i=0; i<count; i++){
+        if(((size_t)index >= spans[i].line_start) && ((size_t)index < spans[i].name_end)) {
+            *out_id = spans[i].speaker_id;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void on_caption_pressed(GtkGestureClick *gesture,
+                               int n_press,
+                               double x,
+                               double y,
+                               LiveCaptionsWindow *self)
+{
+    (void)n_press;
+
+    int32_t speaker_id = LINE_SPEAKER_UNKNOWN;
+    if(!caption_speaker_at(self, x, y, &speaker_id)) return;
+
+    // Claimed so the window handle underneath does not treat it as a drag
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
 
     GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
-    if(app == NULL) return TRUE;
+    if(app == NULL) return;
 
     livecaptions_application_ask_speaker_name(LIVECAPTIONS_APPLICATION(app),
-                                              GTK_WINDOW(self),
-                                              (int32_t)speaker_id,
+                                              GTK_WINDOW(self), speaker_id,
                                               NULL, NULL);
+}
 
-    // Handled here; Pango must not try to open it as an address
-    return TRUE;
+static void on_caption_motion(GtkEventControllerMotion *controller,
+                              double x,
+                              double y,
+                              LiveCaptionsWindow *self)
+{
+    (void)controller;
+
+    int32_t speaker_id = LINE_SPEAKER_UNKNOWN;
+    bool over_name = caption_speaker_at(self, x, y, &speaker_id);
+
+    gtk_widget_set_cursor_from_name(GTK_WIDGET(self->label), over_name ? "pointer" : NULL);
 }
 
 static void livecaptions_window_init(LiveCaptionsWindow *self) {
     gtk_widget_init_template(GTK_WIDGET(self));
 
-    g_signal_connect(self->label, "activate-link", G_CALLBACK(on_caption_link), self);
+    // Speaker names can be clicked to name them. Done with a gesture rather
+    // than link markup so the target can be made bigger than the letters, which
+    // are otherwise fiddly to hit and flicker as the pointer crosses the edge.
+    GtkGesture *click = gtk_gesture_click_new();
+    g_signal_connect(click, "pressed", G_CALLBACK(on_caption_pressed), self);
+    gtk_widget_add_controller(GTK_WIDGET(self->label), GTK_EVENT_CONTROLLER(click));
+
+    GtkEventController *motion = gtk_event_controller_motion_new();
+    g_signal_connect(motion, "motion", G_CALLBACK(on_caption_motion), self);
+    gtk_widget_add_controller(GTK_WIDGET(self->label), motion);
 
     self->settings = g_settings_new("net.sapples.LiveCaptions");
 
