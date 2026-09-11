@@ -108,3 +108,62 @@ void diarize_flush(diarize_state d);
 // Copies out the most recent segments, oldest first, and returns how many were
 // written. Used by the offline tools and tests.
 size_t diarize_get_segments(diarize_state d, struct diarize_segment *out, size_t max);
+
+
+// Most distinct voices one session can track. The user's max-speakers setting
+// narrows this further; this is the ceiling on the table itself.
+#define DIARIZE_MAX_SPEAKERS 16
+
+#define DIARIZE_NAME_MAX 64
+
+// What the diarizer knows about one speaker in this session, for handing back
+// to the profile store
+struct diarize_speaker_info {
+    int32_t id;          // speaker index within this session
+    uint64_t profile_id; // stored profile it came from, or 0 if new this session
+    char name[DIARIZE_NAME_MAX];
+    bool named;
+    uint32_t updates;
+    uint64_t speech_ms;
+    const float *centroid; // embedding_dim floats, valid until the next call
+};
+
+// Width of the embeddings this diarizer produces, or 0 if no model loaded
+int diarize_embedding_dim(diarize_state d);
+
+// Introduces a voice from the profile store before captioning starts, so that
+// somebody named in an earlier session is recognised straight away. Must be
+// called before any audio is pushed.
+bool diarize_seed_speaker(diarize_state d,
+                          uint64_t profile_id,
+                          const char *name,
+                          const float *centroid,
+                          int dim,
+                          uint32_t updates);
+
+// Copies out what has been learned about each speaker, for writing back to the
+// profile store. Returns how many were written.
+size_t diarize_snapshot_speakers(diarize_state d,
+                                 struct diarize_speaker_info *out,
+                                 size_t max);
+
+// The name for a speaker, if one is known. Returns false if it is nameless.
+bool diarize_get_speaker_name(diarize_state d,
+                              int32_t speaker_id,
+                              char *out,
+                              size_t out_size);
+
+// Names a speaker for the rest of the session
+void diarize_set_speaker_name(diarize_state d, int32_t speaker_id, const char *name);
+
+// The stored profile a speaker corresponds to, or 0 if it is new this session
+uint64_t diarize_profile_id(diarize_state d, int32_t speaker_id);
+
+// Links a speaker to a profile that has just been written to the store, so the
+// rest of the session updates that profile rather than adding another
+void diarize_bind_profile(diarize_state d, int32_t speaker_id, uint64_t profile_id);
+
+// Drops every name and profile link, for when the stored voices are deleted.
+// The speakers themselves stay, so the transcript does not lose its structure
+// part way through a session; they simply go back to being anonymous.
+void diarize_forget_profiles(diarize_state d);

@@ -10,3 +10,4 @@ src/livecaptions-settings.ui
 src/livecaptions-settings.c
 src/livecaptions-welcome.ui
 src/livecaptions-welcome.c
+src/history.c

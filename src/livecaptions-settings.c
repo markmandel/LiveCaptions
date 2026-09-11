@@ -19,6 +19,7 @@
 #include <glib/gi18n.h>
 
 #include "common.h"
+
 #include "window-helper.h"
 #include "livecaptions-config.h"
 #include "livecaptions-settings.h"
@@ -183,6 +184,51 @@ static void on_speaker_threshold_value_changed(GtkAdjustment *adjustment, LiveCa
     g_free(text);
 }
 
+// Counted straight from the store rather than tracked, so the number is right
+// even though voices are written there by the audio thread
+static void update_voice_count(LiveCaptionsSettings *self) {
+    size_t count = livecaptions_application_voice_count(self->application);
+
+    char *text = (count == 0)
+        ? g_strdup(_("None yet"))
+        : g_strdup_printf(g_dngettext(GETTEXT_PACKAGE, "%zu voice", "%zu voices", (gulong)count), count);
+
+    gtk_label_set_text(self->voices_label, text);
+    g_free(text);
+}
+
+static void on_forget_voices_response(AdwMessageDialog *dialog, gchar *response, gpointer userdata) {
+    LiveCaptionsSettings *self = LIVECAPTIONS_SETTINGS(userdata);
+
+    if(!g_str_equal(response, "forget")) return;
+
+    livecaptions_application_forget_voices(self->application);
+    update_voice_count(self);
+}
+
+static void forget_voices_cb(LiveCaptionsSettings *self) {
+    GtkWidget *dialog = adw_message_dialog_new(GTK_WINDOW(self),
+                                               _("Forget All Voices?"),
+                                               _("Every stored voice will be deleted, and the "
+                                                 "people they belong to will have to be named "
+                                                 "again. Transcripts keep the names already "
+                                                 "written into them."));
+
+    adw_message_dialog_add_responses(ADW_MESSAGE_DIALOG(dialog),
+                                     "cancel", _("_Cancel"),
+                                     "forget", _("_Forget Voices"),
+                                     NULL);
+
+    adw_message_dialog_set_response_appearance(ADW_MESSAGE_DIALOG(dialog), "forget",
+                                               ADW_RESPONSE_DESTRUCTIVE);
+    adw_message_dialog_set_default_response(ADW_MESSAGE_DIALOG(dialog), "cancel");
+    adw_message_dialog_set_close_response(ADW_MESSAGE_DIALOG(dialog), "cancel");
+
+    g_signal_connect(dialog, "response", G_CALLBACK(on_forget_voices_response), self);
+
+    gtk_window_present(GTK_WINDOW(dialog));
+}
+
 static void on_builtin_toggled(LiveCaptionsSettings *self);
 
 static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
@@ -218,6 +264,8 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, speaker_threshold_scale);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, speaker_threshold_adjustment);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, speaker_threshold_label);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, voices_row);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, voices_label);
 
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, benchmark_label);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, keep_above_instructions);
@@ -229,6 +277,7 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
     gtk_widget_class_bind_template_callback (widget_class, report_cb);
     gtk_widget_class_bind_template_callback (widget_class, on_silence_timeout_value_changed);
     gtk_widget_class_bind_template_callback (widget_class, on_speaker_threshold_value_changed);
+    gtk_widget_class_bind_template_callback (widget_class, forget_voices_cb);
     gtk_widget_class_bind_template_callback (widget_class, about_cb);
     gtk_widget_class_bind_template_callback (widget_class, rerun_benchmark_cb);
     gtk_widget_class_bind_template_callback (widget_class, open_history);
@@ -448,6 +497,7 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     g_settings_bind(self->settings, "diarization", self->diarization_switch, "active", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "speaker-similarity-threshold", self->speaker_threshold_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
     on_speaker_threshold_value_changed(self->speaker_threshold_adjustment, self);
+    update_voice_count(self);
 
     g_settings_bind(self->settings, "font-name", self->font_button, "font", G_SETTINGS_BIND_DEFAULT);
 

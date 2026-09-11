@@ -52,4 +52,23 @@ LiveCaptionsApplication *livecaptions_application_new (gchar *application_id,
 
 void livecaptions_application_stream_text(LiveCaptionsApplication *self, const char* text);
 
+void livecaptions_application_rename_speaker(LiveCaptionsApplication *self,
+                                             int32_t speaker_id,
+                                             const char *name);
+
+// Called once the user has named a speaker, so a window showing the transcript
+// can redraw it
+typedef void (*LiveCaptionsSpeakerNamed)(gpointer userdata);
+
+// Asks for a name for this speaker and applies it everywhere. Shared so the
+// captions and the transcript window offer exactly the same thing.
+void livecaptions_application_ask_speaker_name(LiveCaptionsApplication *self,
+                                               GtkWindow *parent,
+                                               int32_t speaker_id,
+                                               LiveCaptionsSpeakerNamed done,
+                                               gpointer userdata);
+
+size_t livecaptions_application_voice_count(LiveCaptionsApplication *self);
+void livecaptions_application_forget_voices(LiveCaptionsApplication *self);
+
 G_END_DECLS

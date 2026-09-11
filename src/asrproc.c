@@ -38,6 +38,7 @@
 #include "livecaptions-application.h"
 #include "history.h"
 #include "diarize.h"
+#include "speaker-db.h"
 #include "common.h"
 
 // Shortest gap between two diarizer-driven flushes. A speaker boundary that
@@ -78,6 +79,10 @@ struct asr_thread_i {
     _Atomic uint64_t capture_samples;
 
     diarize_state diarize;
+
+    // Voices remembered from earlier sessions. Only voices the user actually
+    // named are kept; see write_back_profiles.
+    speaker_db speakers;
 
     // Capture-clock position of the last turn boundary. Recognition results
     // arrive well after the audio that produced them, so an utterance is dated
@@ -126,6 +131,105 @@ static void *run_asr_thread(void *userdata){
     return NULL;
 }
 
+// Speech a voice new to this session must account for before it is worth
+// remembering, so that a stray match does not leave junk in the profile store
+#define PROFILE_MIN_SPEECH_MS 3000
+
+
+// Introduces the stored voices to the diarizer, most recently heard first, so
+// that if there are more of them than a session can hold the ones likely to turn
+// up again are the ones kept.
+static void seed_profiles(asr_thread data, int max_speakers) {
+    if((data->speakers == NULL) || (data->diarize == NULL)) return;
+
+    size_t count = speaker_db_count(data->speakers);
+    if(count == 0) return;
+
+    int dim = diarize_embedding_dim(data->diarize);
+
+    // Leave headroom so that people who are not in the store can still be
+    // picked up during the session
+    size_t limit = (max_speakers > 2) ? (size_t)(max_speakers - 2) : 1;
+
+    size_t *order = calloc(count, sizeof(size_t));
+    if(order == NULL) return;
+
+    for(size_t i=0; i<count; i++) order[i] = i;
+
+    for(size_t i=1; i<count; i++){
+        size_t key = order[i];
+        time_t key_seen = speaker_db_get(data->speakers, key)->last_seen;
+
+        size_t j = i;
+        while((j > 0) && (speaker_db_get(data->speakers, order[j-1])->last_seen < key_seen)) {
+            order[j] = order[j-1];
+            j--;
+        }
+
+        order[j] = key;
+    }
+
+    size_t seeded = 0;
+    for(size_t i=0; (i < count) && (seeded < limit); i++){
+        const struct speaker_profile *profile = speaker_db_get(data->speakers, order[i]);
+        if(profile == NULL) continue;
+
+        if(diarize_seed_speaker(data->diarize, profile->id, profile->name,
+                                profile->centroid, dim, profile->updates)) {
+            seeded += 1;
+        }
+    }
+
+    free(order);
+
+    if(seeded > 0) printf("Speaker profiles: %zu voice(s) ready to be recognised\n", seeded);
+}
+
+
+// Writes back what was learned about each voice.
+//
+// Only voices the user named are added to the store. Everyone who happens to be
+// captioned would otherwise leave a voice print behind, which is more than the
+// feature needs and more than a user would expect it to keep.
+static void write_back_profiles(asr_thread data) {
+    if((data->speakers == NULL) || (data->diarize == NULL)) return;
+
+    struct diarize_speaker_info info[DIARIZE_MAX_SPEAKERS];
+    size_t count = diarize_snapshot_speakers(data->diarize, info, G_N_ELEMENTS(info));
+
+    for(size_t i=0; i<count; i++){
+        if(info[i].profile_id != SPEAKER_DB_NO_PROFILE) {
+            const struct speaker_profile *existing =
+                speaker_db_find(data->speakers, info[i].profile_id);
+
+            uint64_t total = info[i].speech_ms;
+            if(existing != NULL) total += existing->total_speech_ms;
+
+            speaker_db_update(data->speakers, info[i].profile_id,
+                              info[i].centroid, info[i].updates, total);
+
+            if(info[i].named) {
+                speaker_db_rename(data->speakers, info[i].profile_id, info[i].name);
+            }
+
+            continue;
+        }
+
+        if(!info[i].named) continue;
+        if(info[i].speech_ms < PROFILE_MIN_SPEECH_MS) continue;
+
+        uint64_t id = speaker_db_add(data->speakers, info[i].centroid,
+                                     info[i].updates, info[i].speech_ms);
+
+        if(id != SPEAKER_DB_NO_PROFILE) {
+            speaker_db_rename(data->speakers, id, info[i].name);
+        }
+    }
+
+    speaker_db_save(data->speakers);
+}
+
+
 // Current position of the capture clock, in milliseconds
 static uint64_t asr_capture_ms(asr_thread data) {
     if(data->model == NULL) return 0;
@@ -170,6 +274,12 @@ static void apply_speaker_label(asr_thread data, int32_t speaker) {
     // Registering first means an unnamed speaker still gets its "Speaker N"
     // placeholder, and a renamed one picks up the name the user chose
     history_register_speaker(speaker);
+
+    // A voice matched against a stored profile arrives already named
+    char known[DIARIZE_NAME_MAX];
+    if(diarize_get_speaker_name(data->diarize, speaker, known, sizeof(known))) {
+        history_set_speaker_name(speaker, known);
+    }
 
     char label[LINE_SPEAKER_NAME_MAX];
     if(!history_speaker_label(get_history_session(0), speaker, label, sizeof(label))) return;
@@ -356,8 +466,17 @@ asr_thread create_asr_thread(const char *model_path){
         diarize_set_change_handler(data->diarize, on_speaker_changed, data);
         diarize_set_match_threshold(data->diarize,
             (float)g_settings_get_double(settings, "speaker-similarity-threshold"));
-        diarize_set_max_speakers(data->diarize,
-            g_settings_get_int(settings, "max-speakers"));
+        int max_speakers = g_settings_get_int(settings, "max-speakers");
+        diarize_set_max_speakers(data->diarize, max_speakers);
+
+        // Stored voices have to be in place before any audio arrives, so that
+        // somebody named previously is recognised from their first word
+        if(diarize_has_models(data->diarize)) {
+            data->speakers = speaker_db_open(speaker_db_default_path(),
+                                             diarize_embedding_dim(data->diarize));
+            seed_profiles(data, max_speakers);
+        }
+
         diarize_set_enabled(data->diarize, g_settings_get_boolean(settings, "diarization"));
     }
 
@@ -373,6 +492,75 @@ void asr_thread_set_diarization(asr_thread thread, bool enabled) {
     if((thread == NULL) || (thread->diarize == NULL)) return;
 
     diarize_set_enabled(thread->diarize, enabled);
+}
+
+void asr_thread_rename_speaker(asr_thread thread, int32_t speaker_id, const char *name) {
+    if((thread == NULL) || (thread->diarize == NULL)) return;
+    if(speaker_id == HISTORY_SPEAKER_UNKNOWN) return;
+
+    // Three places have to agree: the diarizer labels live captions from its
+    // own copy, history renders the saved transcript from its table, and the
+    // store is what survives to the next session
+    diarize_set_speaker_name(thread->diarize, speaker_id, name);
+
+    g_mutex_lock(&thread->text_mutex);
+    history_set_speaker_name(speaker_id, name);
+
+    // Rewrite the name on the captions already on screen, rather than leaving
+    // the old one sitting there until it scrolls away
+    char label[LINE_SPEAKER_NAME_MAX];
+    if(history_speaker_label(get_history_session(0), speaker_id, label, sizeof(label))) {
+        line_generator_rename_speaker(&thread->line, speaker_id, label);
+    }
+
+    g_mutex_unlock(&thread->text_mutex);
+
+    g_idle_add(main_thread_update_label, thread);
+
+    if(thread->speakers == NULL) return;
+
+    uint64_t profile_id = diarize_profile_id(thread->diarize, speaker_id);
+
+    if(profile_id != SPEAKER_DB_NO_PROFILE) {
+        speaker_db_rename(thread->speakers, profile_id, name);
+        speaker_db_save(thread->speakers);
+        return;
+    }
+
+    // Naming a voice is what makes it worth keeping, so store it now rather
+    // than waiting for the session to end
+    struct diarize_speaker_info info[DIARIZE_MAX_SPEAKERS];
+    size_t count = diarize_snapshot_speakers(thread->diarize, info, G_N_ELEMENTS(info));
+
+    for(size_t i=0; i<count; i++){
+        if(info[i].id != speaker_id) continue;
+
+        uint64_t id = speaker_db_add(thread->speakers, info[i].centroid,
+                                     info[i].updates, info[i].speech_ms);
+
+        if(id != SPEAKER_DB_NO_PROFILE) {
+            speaker_db_rename(thread->speakers, id, name);
+            diarize_bind_profile(thread->diarize, speaker_id, id);
+            speaker_db_save(thread->speakers);
+        }
+
+        break;
+    }
+}
+
+size_t asr_thread_voice_count(asr_thread thread) {
+    if((thread == NULL) || (thread->speakers == NULL)) return 0;
+    return speaker_db_count(thread->speakers);
+}
+
+void asr_thread_forget_voices(asr_thread thread) {
+    if(thread == NULL) return;
+
+    if(thread->speakers != NULL) speaker_db_forget_all(thread->speakers);
+
+    // Otherwise the session would write its still-named speakers straight back
+    // out again when it ends, undoing the deletion
+    diarize_forget_profiles(thread->diarize);
 }
 
 void asr_thread_set_speaker_threshold(asr_thread thread, double threshold) {
@@ -475,6 +663,12 @@ void asr_thread_flush(asr_thread thread) {
 
 void free_asr_thread(asr_thread thread) {
     thread->ending = true;
+
+    // Remember the voices before the diarizer that holds them goes away
+    write_back_profiles(thread);
+
+    speaker_db_close(thread->speakers);
+    thread->speakers = NULL;
 
     // Stopped before the session is freed, since the diarizer's change handler
     // calls aas_flush on it

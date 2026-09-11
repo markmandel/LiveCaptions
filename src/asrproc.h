@@ -39,6 +39,16 @@ void asr_thread_pause(asr_thread thread, bool pause);
 void asr_thread_set_text_stream_active(asr_thread thread, bool active);
 void asr_thread_set_diarization(asr_thread thread, bool enabled);
 void asr_thread_set_speaker_threshold(asr_thread thread, double threshold);
+
+// Names a speaker: updates the live captions, the saved transcript, and the
+// stored voice profile so the name is recognised in later sessions
+void asr_thread_rename_speaker(asr_thread thread, int32_t speaker_id, const char *name);
+
+// How many voices are remembered from this and earlier sessions
+size_t asr_thread_voice_count(asr_thread thread);
+
+// Deletes every stored voice, and unnames the speakers in the running session
+void asr_thread_forget_voices(asr_thread thread);
 void asr_thread_set_max_speakers(asr_thread thread, int max_speakers);
 int asr_thread_samplerate(asr_thread thread);
 void asr_thread_flush(asr_thread thread);

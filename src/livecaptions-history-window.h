@@ -20,11 +20,16 @@
 #pragma once
 
 #include <gtk/gtk.h>
+#include "livecaptions-application.h"
 
 struct _LiveCaptionsHistoryWindow {
     GtkWindow  parent_instance;
 
     GSettings *settings;
+
+    // Needed to rename a speaker, which has to reach the diarizer and the
+    // stored voice profiles, not just the text on screen
+    LiveCaptionsApplication *application;
 
     GtkBox *main_box;
 

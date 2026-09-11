@@ -12,6 +12,7 @@ livecaptions_sources = [
   'spk-fbank.c',
   'spk-embed.c',
   'spk-vad.c',
+  'speaker-db.c',
   'line-gen.c',
   'profanity-filter.c',
   'window-helper.c',
@@ -90,6 +91,16 @@ line_gen_test = executable('line-gen-test',
 test('line-gen', line_gen_test,
   env: ['GSETTINGS_SCHEMA_DIR=' + meson.project_build_root() / 'data'],
 )
+
+# Checks the stored voice profiles round-trip. Pure logic, so it needs neither
+# a display nor the speaker models.
+speaker_db_test = executable('speaker-db-test',
+  ['speaker-db-test.c', 'speaker-db.c'],
+  dependencies: [dependency('glib-2.0')],
+  install: false,
+)
+
+test('speaker-db', speaker_db_test)
 
 # Offline harness for the diarizer. Not installed; it exists so speaker
 # segmentation can be tuned and regression-tested without the GUI.

@@ -36,6 +36,21 @@
     line-height: 1.3;
 }
 
+/* The speaker's name doubles as the button that renames them, so it is stripped
+   back to read as a heading rather than a control, until it is hovered */
+.speaker-name {
+    padding: 0px 4px;
+    margin: 0px;
+    min-height: 0px;
+    background: none;
+    box-shadow: none;
+    border: none;
+}
+
+.speaker-name:hover {
+    background: alpha(currentColor, 0.12);
+}
+
 @keyframes flashing {
     0% {
       color: yellow;

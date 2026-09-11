@@ -32,6 +32,7 @@
 #include "diarize.h"
 #include "spk-embed.h"
 #include "spk-vad.h"
+#include "speaker-db.h"
 
 // How much captured audio to keep buffered. The worker only needs a second or
 // two of headroom; the rest is slack so a scheduling hiccup does not cost audio.
@@ -100,8 +101,6 @@
 
 #define DIARIZE_SPEECH_BUFFER_MS 12000
 
-#define DIARIZE_MAX_SPEAKERS 16
-
 // Fraction of the configured threshold that applies to the shortest window
 // worth embedding. Similarity between two windows of the same voice drops with
 // their length (see the table above), so a bar set for three seconds of speech
@@ -127,6 +126,17 @@ struct diarize_speaker {
     float centroid[SPK_EMBED_MAX_DIM];
     uint32_t updates;
     bool active;
+
+    // Set when this voice came from, or has been written back to, the profile
+    // store. Zero means it has only been heard in this session so far.
+    uint64_t profile_id;
+
+    char name[DIARIZE_NAME_MAX];
+    bool named;
+
+    // Speech attributed to this voice, which the profile store keeps so that a
+    // well established voice can be told from one heard in passing
+    uint64_t speech_ms;
 };
 
 struct diarize_state_i {
@@ -317,6 +327,12 @@ static void timeline_append(diarize_state d,
     d->timeline_count += 1;
 
     g_mutex_unlock(&d->timeline_mutex);
+
+    // Track how much this voice has actually been heard, which the profile
+    // store keeps so a well established voice can be told from a passing one
+    if((speaker_id >= 0) && ((size_t)speaker_id < d->num_speakers)) {
+        d->speakers[speaker_id].speech_ms += (end_ms - start_ms);
+    }
 }
 
 
@@ -449,6 +465,126 @@ size_t diarize_get_segments(diarize_state d, struct diarize_segment *out, size_t
     return available;
 }
 
+int diarize_embedding_dim(diarize_state d) {
+    if((d == NULL) || !d->models_ok) return 0;
+    return d->embed_dim;
+}
+
+bool diarize_seed_speaker(diarize_state d,
+                          uint64_t profile_id,
+                          const char *name,
+                          const float *centroid,
+                          int dim,
+                          uint32_t updates)
+{
+    if((d == NULL) || !d->models_ok || (centroid == NULL)) return false;
+
+    // A centroid from a different model is in a different space and cannot be
+    // compared with anything this one produces
+    if(dim != d->embed_dim) return false;
+
+    if((int)d->num_speakers >= d->max_speakers) return false;
+    if(d->num_speakers >= DIARIZE_MAX_SPEAKERS) return false;
+
+    struct diarize_speaker *speaker = &d->speakers[d->num_speakers];
+
+    memcpy(speaker->centroid, centroid, (size_t)d->embed_dim * sizeof(float));
+    speaker->updates = (updates == 0) ? 1 : updates;
+    speaker->active = true;
+    speaker->profile_id = profile_id;
+    speaker->speech_ms = 0;
+
+    if((name != NULL) && (name[0] != '\0')) {
+        g_strlcpy(speaker->name, name, DIARIZE_NAME_MAX);
+        speaker->named = true;
+    } else {
+        speaker->name[0] = '\0';
+        speaker->named = false;
+    }
+
+    d->num_speakers += 1;
+
+    return true;
+}
+
+size_t diarize_snapshot_speakers(diarize_state d,
+                                 struct diarize_speaker_info *out,
+                                 size_t max)
+{
+    if((d == NULL) || (out == NULL)) return 0;
+
+    size_t written = 0;
+
+    for(size_t i=0; (i < d->num_speakers) && (written < max); i++){
+        if(!d->speakers[i].active) continue;
+
+        out[written].id = (int32_t)i;
+        out[written].profile_id = d->speakers[i].profile_id;
+        out[written].named = d->speakers[i].named;
+        out[written].updates = d->speakers[i].updates;
+        out[written].speech_ms = d->speakers[i].speech_ms;
+        out[written].centroid = d->speakers[i].centroid;
+
+        g_strlcpy(out[written].name, d->speakers[i].name, DIARIZE_NAME_MAX);
+
+        written += 1;
+    }
+
+    return written;
+}
+
+bool diarize_get_speaker_name(diarize_state d,
+                              int32_t speaker_id,
+                              char *out,
+                              size_t out_size)
+{
+    if((d == NULL) || (out == NULL)) return false;
+    if((speaker_id < 0) || ((size_t)speaker_id >= d->num_speakers)) return false;
+    if(!d->speakers[speaker_id].named) return false;
+
+    g_strlcpy(out, d->speakers[speaker_id].name, out_size);
+
+    return true;
+}
+
+void diarize_set_speaker_name(diarize_state d, int32_t speaker_id, const char *name) {
+    if(d == NULL) return;
+    if((speaker_id < 0) || ((size_t)speaker_id >= d->num_speakers)) return;
+
+    if((name == NULL) || (name[0] == '\0')) {
+        d->speakers[speaker_id].name[0] = '\0';
+        d->speakers[speaker_id].named = false;
+        return;
+    }
+
+    g_strlcpy(d->speakers[speaker_id].name, name, DIARIZE_NAME_MAX);
+    d->speakers[speaker_id].named = true;
+}
+
+uint64_t diarize_profile_id(diarize_state d, int32_t speaker_id) {
+    if(d == NULL) return 0;
+    if((speaker_id < 0) || ((size_t)speaker_id >= d->num_speakers)) return 0;
+
+    return d->speakers[speaker_id].profile_id;
+}
+
+void diarize_bind_profile(diarize_state d, int32_t speaker_id, uint64_t profile_id) {
+    if(d == NULL) return;
+    if((speaker_id < 0) || ((size_t)speaker_id >= d->num_speakers)) return;
+
+    d->speakers[speaker_id].profile_id = profile_id;
+}
+
+void diarize_forget_profiles(diarize_state d) {
+    if(d == NULL) return;
+
+    for(size_t i=0; i<d->num_speakers; i++){
+        d->speakers[i].profile_id = SPEAKER_DB_NO_PROFILE;
+        d->speakers[i].name[0] = '\0';
+        d->speakers[i].named = false;
+    }
+}
+
 void diarize_flush(diarize_state d) {
     if((d == NULL) || (d->thread == NULL)) return;
 
@@ -522,6 +658,13 @@ static int32_t classify(diarize_state d,
         speaker->updates = 1;
         speaker->active = true;
 
+        // Heard for the first time in this session, so not linked to a stored
+        // profile until it is written back
+        speaker->profile_id = SPEAKER_DB_NO_PROFILE;
+        speaker->name[0] = '\0';
+        speaker->named = false;
+        speaker->speech_ms = 0;
+
         d->num_speakers += 1;
 
         return id;
@@ -544,6 +687,13 @@ static int32_t classify(diarize_state d,
         memcpy(speaker->centroid, embedding, (size_t)d->embed_dim * sizeof(float));
         speaker->updates = 1;
         speaker->active = true;
+
+        // Heard for the first time in this session, so not linked to a stored
+        // profile until it is written back
+        speaker->profile_id = SPEAKER_DB_NO_PROFILE;
+        speaker->name[0] = '\0';
+        speaker->named = false;
+        speaker->speech_ms = 0;
 
         d->num_speakers += 1;
 

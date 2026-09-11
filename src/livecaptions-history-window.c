@@ -53,7 +53,10 @@ static void warn_deletion_cb(LiveCaptionsHistoryWindow *self){
 
     dialog = adw_message_dialog_new(parent,
                                     _("Erase History?"),
-                                    _("Everything in history will be erased. You may wish to export your history before erasing!"));
+                                    _("Everything in history will be erased. You may wish to export your "
+                                      "history before erasing!\n\n"
+                                      "Voices you have named are stored separately, and can be "
+                                      "deleted under Voices in the preferences."));
 
     adw_message_dialog_add_responses(ADW_MESSAGE_DIALOG(dialog),
                                     "cancel",  _("_Cancel"),
@@ -71,6 +74,8 @@ static void warn_deletion_cb(LiveCaptionsHistoryWindow *self){
 }
 
 
+
+static void refresh_cb(LiveCaptionsHistoryWindow *self);
 
 static gboolean force_bottom(gpointer userdata) {
     LiveCaptionsHistoryWindow *self = LIVECAPTIONS_HISTORY_WINDOW(userdata);
@@ -107,6 +112,84 @@ static void add_text(LiveCaptionsHistoryWindow *self, char *text, bool is_text) 
     gtk_box_prepend(self->main_box, label);
 }
 
+static void on_speaker_named(gpointer userdata) {
+    // The same speaker may be named in many places on screen, so the whole
+    // transcript is rebuilt rather than patched
+    refresh_cb(LIVECAPTIONS_HISTORY_WINDOW(userdata));
+}
+
+static void rename_speaker_cb(GtkButton *button, LiveCaptionsHistoryWindow *self) {
+    int32_t speaker_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "speaker-id"));
+
+    livecaptions_application_ask_speaker_name(self->application, GTK_WINDOW(self),
+                                              speaker_id, on_speaker_named, self);
+}
+
+// One speaker's stretch of transcript: their name, which can be clicked to
+// change it, followed by what they said
+static void add_speaker_block(LiveCaptionsHistoryWindow *self,
+                              const struct history_session *session,
+                              int32_t speaker_id,
+                              const char *text)
+{
+    char label_text[HISTORY_SPEAKER_NAME_MAX];
+
+    if((speaker_id == HISTORY_SPEAKER_UNKNOWN)
+        || !history_speaker_label(session, speaker_id, label_text, sizeof(label_text))) {
+        add_text(self, text, true);
+        return;
+    }
+
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+    GtkWidget *button = gtk_button_new_with_label(label_text);
+    gtk_widget_add_css_class(button, "flat");
+    gtk_widget_add_css_class(button, "speaker-name");
+    gtk_widget_set_halign(button, GTK_ALIGN_START);
+    gtk_widget_set_tooltip_text(button, _("Click to name this speaker"));
+
+    // Matches the colour the live captions use for this speaker
+    PangoAttrList *attrs = pango_attr_list_new();
+    GdkRGBA rgba;
+
+    if(gdk_rgba_parse(&rgba, line_generator_speaker_color(speaker_id))) {
+        pango_attr_list_change(attrs, pango_attr_foreground_new(
+            (guint16)(rgba.red * 65535.0), (guint16)(rgba.green * 65535.0),
+            (guint16)(rgba.blue * 65535.0)));
+    }
+
+    pango_attr_list_change(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    gtk_label_set_attributes(GTK_LABEL(gtk_button_get_child(GTK_BUTTON(button))), attrs);
+    pango_attr_list_unref(attrs);
+
+    g_object_set_data(G_OBJECT(button), "speaker-id", GINT_TO_POINTER(speaker_id));
+    g_object_set_data_full(G_OBJECT(button), "speaker-name", g_strdup(label_text), g_free);
+    g_signal_connect(button, "clicked", G_CALLBACK(rename_speaker_cb), self);
+
+    gtk_box_append(GTK_BOX(box), button);
+
+    GtkWidget *label = gtk_label_new(text);
+
+    PangoFontDescription *desc =
+        pango_font_description_from_string(g_settings_get_string(self->settings, "font-name"));
+    PangoAttrList *text_attrs = pango_attr_list_new();
+    pango_attr_list_change(text_attrs, pango_attr_font_desc_new(desc));
+    gtk_label_set_attributes(GTK_LABEL(label), text_attrs);
+    pango_attr_list_unref(text_attrs);
+    pango_font_description_free(desc);
+
+    gtk_label_set_selectable(GTK_LABEL(label), true);
+    gtk_label_set_wrap(GTK_LABEL(label), true);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+    gtk_widget_add_css_class(label, "history-label");
+    gtk_widget_set_hexpand(label, true);
+    gtk_widget_set_halign(label, GTK_ALIGN_FILL);
+
+    gtk_box_append(GTK_BOX(box), label);
+
+    gtk_box_prepend(self->main_box, box);
+}
+
 static void add_time(LiveCaptionsHistoryWindow *self, time_t timestamp, bool date) {
     char text[64];
 
@@ -129,6 +212,11 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
     struct token_capitalizer tcap;
     token_capitalizer_init(&tcap);
 
+    // Entries are walked newest first and prepended, so text accumulates into a
+    // block until something ends it: a silence, or a change of speaker
+    int32_t block_speaker = HISTORY_SPEAKER_UNKNOWN;
+    bool block_started = false;
+
     for(size_t i_1=0; i_1<session->entries_count; i_1++){
         size_t i = session->entries_count - i_1 - 1;
 
@@ -139,11 +227,23 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
             if((i + 1) >= session->entries_count) continue;
             const struct history_entry *next_entry = &session->entries[i+1];
 
-            add_text(self, string->str, true);
+            add_speaker_block(self, session, block_speaker, string->str);
             add_time(self, next_entry->timestamp, false);
 
             g_string_truncate(string, 0);
+            block_started = false;
+            block_speaker = HISTORY_SPEAKER_UNKNOWN;
         } else {
+            // A different voice starts its own block, which has to be flushed
+            // before this entry joins the one being built
+            if(block_started && (entry->speaker_id != block_speaker)) {
+                add_speaker_block(self, session, block_speaker, string->str);
+                g_string_truncate(string, 0);
+            }
+
+            block_speaker = entry->speaker_id;
+            block_started = true;
+
             GString *entry_text = g_string_new(NULL);
 
             if(entry->tokens[0].flags & APRIL_TOKEN_FLAG_WORD_BOUNDARY_BIT) {
@@ -205,15 +305,6 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
                 j += skipahead;
             }
 
-            // Entries are walked newest-first and prepended, so a speaker's name
-            // goes on the front of their own entry
-            char speaker_label[HISTORY_SPEAKER_NAME_MAX];
-            if(history_speaker_label(session, entry->speaker_id,
-                                     speaker_label, sizeof(speaker_label))) {
-                g_string_prepend(entry_text, ": ");
-                g_string_prepend(entry_text, speaker_label);
-            }
-
             g_string_append_c(entry_text, '\n');
             g_string_prepend(string, entry_text->str);
 
@@ -221,7 +312,7 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
         }
     }
 
-    add_text(self, string->str, true);
+    add_speaker_block(self, session, block_speaker, string->str);
     add_time(self, session->entries[0].timestamp, true);
 }
 

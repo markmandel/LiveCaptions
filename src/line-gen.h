@@ -51,11 +51,22 @@ struct line {
 
     size_t head;
     size_t len;
+
+    // The speaker whose name opens this line, and how many bytes of markup that
+    // name takes up. Kept so a rename can rewrite lines already on screen
+    // instead of only applying to whatever is said next.
+    int32_t speaker_id;
+    size_t prefix_len;
+    size_t prefix_width;
 };
 
 // Speaker id meaning "not attributed", matching HISTORY_SPEAKER_UNKNOWN
 #define LINE_SPEAKER_UNKNOWN (-1)
 #define LINE_SPEAKER_NAME_MAX 64
+
+// Speaker names are rendered as links so they can be clicked in the caption
+// window. The scheme is our own, so activate-link can tell them from a real URL.
+#define LINE_SPEAKER_URI_PREFIX "livecaptions-speaker:"
 
 struct line_generator {
     size_t current_line;
@@ -89,6 +100,13 @@ void line_generator_break(struct line_generator *lg);
 void line_generator_set_speaker(struct line_generator *lg,
                                 int32_t speaker_id,
                                 const char *name);
+
+// Rewrites the name on every line already showing this speaker, so a rename
+// takes effect on what is on screen rather than only on what is said next.
+// Returns true if any line changed.
+bool line_generator_rename_speaker(struct line_generator *lg,
+                                   int32_t speaker_id,
+                                   const char *name);
 
 // The colour used for a speaker's name, as a Pango colour string
 const char *line_generator_speaker_color(int32_t speaker_id);

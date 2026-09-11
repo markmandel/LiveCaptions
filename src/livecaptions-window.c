@@ -191,8 +191,36 @@ static gboolean show_relevant_slow_warning(void *userdata) {
     return G_SOURCE_CONTINUE;
 }
 
+// Speaker names in the captions are links, so clicking one offers to name that
+// speaker without having to open the transcript window first
+static gboolean on_caption_link(GtkLabel *label, const char *uri, LiveCaptionsWindow *self) {
+    (void)label;
+
+    if(!g_str_has_prefix(uri, LINE_SPEAKER_URI_PREFIX)) return FALSE;
+
+    const char *id_text = uri + strlen(LINE_SPEAKER_URI_PREFIX);
+
+    char *end = NULL;
+    long speaker_id = strtol(id_text, &end, 10);
+
+    if((end == id_text) || (speaker_id < 0)) return TRUE;
+
+    GtkApplication *app = gtk_window_get_application(GTK_WINDOW(self));
+    if(app == NULL) return TRUE;
+
+    livecaptions_application_ask_speaker_name(LIVECAPTIONS_APPLICATION(app),
+                                              GTK_WINDOW(self),
+                                              (int32_t)speaker_id,
+                                              NULL, NULL);
+
+    // Handled here; Pango must not try to open it as an address
+    return TRUE;
+}
+
 static void livecaptions_window_init(LiveCaptionsWindow *self) {
     gtk_widget_init_template(GTK_WIDGET(self));
+
+    g_signal_connect(self->label, "activate-link", G_CALLBACK(on_caption_link), self);
 
     self->settings = g_settings_new("net.sapples.LiveCaptions");
 

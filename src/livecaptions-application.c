@@ -25,6 +25,7 @@
 #include "asrproc.h"
 #include "common.h"
 #include "history.h"
+#include <glib/gi18n.h>
 
 G_DEFINE_TYPE (LiveCaptionsApplication, livecaptions_application, ADW_TYPE_APPLICATION)
 
@@ -266,8 +267,90 @@ livecaptions_application_show_history(G_GNUC_UNUSED GSimpleAction *action,
     LiveCaptionsHistoryWindow *history = g_object_new(LIVECAPTIONS_TYPE_HISTORY_WINDOW,
                                                       "transient-for", window,
                                                       NULL);
+    history->application = self;
 
     gtk_window_present(GTK_WINDOW(history));
+}
+
+
+void livecaptions_application_rename_speaker(LiveCaptionsApplication *self,
+                                             int32_t speaker_id,
+                                             const char *name)
+{
+    if((self == NULL) || (self->asr == NULL)) return;
+
+    asr_thread_rename_speaker(self->asr, speaker_id, name);
+}
+
+
+static void on_speaker_name_response(AdwMessageDialog *dialog, gchar *response, gpointer userdata) {
+    LiveCaptionsApplication *self = LIVECAPTIONS_APPLICATION(userdata);
+
+    if(!g_str_equal(response, "rename")) return;
+
+    GtkEntry *entry = GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), "entry"));
+    int32_t speaker_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(dialog), "speaker-id"));
+
+    livecaptions_application_rename_speaker(self, speaker_id,
+                                            gtk_editable_get_text(GTK_EDITABLE(entry)));
+
+    LiveCaptionsSpeakerNamed done = g_object_get_data(G_OBJECT(dialog), "done");
+    if(done != NULL) done(g_object_get_data(G_OBJECT(dialog), "done-userdata"));
+}
+
+void livecaptions_application_ask_speaker_name(LiveCaptionsApplication *self,
+                                               GtkWindow *parent,
+                                               int32_t speaker_id,
+                                               LiveCaptionsSpeakerNamed done,
+                                               gpointer userdata)
+{
+    if((self == NULL) || (speaker_id == HISTORY_SPEAKER_UNKNOWN)) return;
+
+    char current[HISTORY_SPEAKER_NAME_MAX] = { 0 };
+    const struct history_speaker *speaker =
+        history_find_speaker(get_history_session(0), speaker_id);
+
+    if((speaker != NULL) && speaker->named) g_strlcpy(current, speaker->name, sizeof(current));
+
+    GtkWidget *dialog = adw_message_dialog_new(parent,
+                                               _("Name This Speaker"),
+                                               _("Live Captions will recognise this voice "
+                                                 "again in future sessions."));
+
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_activates_default(GTK_ENTRY(entry), true);
+    gtk_editable_set_text(GTK_EDITABLE(entry), current);
+
+    adw_message_dialog_set_extra_child(ADW_MESSAGE_DIALOG(dialog), entry);
+
+    adw_message_dialog_add_responses(ADW_MESSAGE_DIALOG(dialog),
+                                     "cancel", _("_Cancel"),
+                                     "rename", _("_Name"),
+                                     NULL);
+
+    adw_message_dialog_set_response_appearance(ADW_MESSAGE_DIALOG(dialog), "rename",
+                                               ADW_RESPONSE_SUGGESTED);
+    adw_message_dialog_set_default_response(ADW_MESSAGE_DIALOG(dialog), "rename");
+    adw_message_dialog_set_close_response(ADW_MESSAGE_DIALOG(dialog), "cancel");
+
+    g_object_set_data(G_OBJECT(dialog), "entry", entry);
+    g_object_set_data(G_OBJECT(dialog), "speaker-id", GINT_TO_POINTER(speaker_id));
+    g_object_set_data(G_OBJECT(dialog), "done", done);
+    g_object_set_data(G_OBJECT(dialog), "done-userdata", userdata);
+
+    g_signal_connect(dialog, "response", G_CALLBACK(on_speaker_name_response), self);
+
+    gtk_window_present(GTK_WINDOW(dialog));
+}
+
+size_t livecaptions_application_voice_count(LiveCaptionsApplication *self) {
+    if((self == NULL) || (self->asr == NULL)) return 0;
+    return asr_thread_voice_count(self->asr);
+}
+
+void livecaptions_application_forget_voices(LiveCaptionsApplication *self) {
+    if((self == NULL) || (self->asr == NULL)) return;
+    asr_thread_forget_voices(self->asr);
 }
 
 

@@ -57,6 +57,8 @@ struct _LiveCaptionsSettings {
     GtkScale *speaker_threshold_scale;
     GtkAdjustment *speaker_threshold_adjustment;
     GtkLabel *speaker_threshold_label;
+    GtkWidget *voices_row;
+    GtkLabel *voices_label;
 
     GtkLabel *benchmark_label;
     GtkLabel *keep_above_instructions;

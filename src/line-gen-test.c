@@ -115,6 +115,56 @@ int main(void) {
     printf("--- plaintext ---\n%s\n-----------------\n", out);
     check_contains("speaker change", out, "Speaker 2:");
 
+    printf("\ncase 4: renaming rewrites captions already on screen\n");
+    {
+        struct line_generator lg2;
+        line_generator_init(&lg2);
+        lg2.layout = pango_layout_new(context);
+        lg2.max_text_width = 100000;
+        lg2.is_english = true;
+
+        line_generator_set_speaker(&lg2, 0, "Speaker 1");
+        line_generator_update(&lg2, 7, tokens);
+        line_generator_finalize(&lg2);
+
+        // A longer name has to push the words along without losing any
+        check_contains("before rename", line_generator_get_plaintext(&lg2), "Speaker 1:");
+
+        bool changed = line_generator_rename_speaker(&lg2, 0, "Alexandra");
+        check_contains("rename reported a change", changed ? "yes" : "", "yes");
+
+        const char *after = line_generator_get_plaintext(&lg2);
+        printf("--- plaintext ---\n%s\n-----------------\n", after);
+
+        check_contains("the new name is shown", after, "Alexandra:");
+        if(strstr(after, "Speaker 1:") != NULL) {
+            printf("  FAIL long rename: the old name is still there\n");
+            failures++;
+        } else {
+            printf("  ok   long rename: the old name is gone\n");
+        }
+        check_no_duplicate("long rename", after, "welcome");
+
+        // And a shorter one has to pull them back without truncating anything
+        line_generator_rename_speaker(&lg2, 0, "Jo");
+        after = line_generator_get_plaintext(&lg2);
+
+        check_contains("the shorter name is shown", after, "Jo:");
+        check_no_duplicate("short rename", after, "welcome");
+        check_contains("the words survived both renames", after, "first of all");
+
+        // The name is a link, so it can be clicked in the caption window
+        const char *markup = lg2.lines[lg2.current_line].text;
+        check_contains("the name is a link", markup, LINE_SPEAKER_URI_PREFIX);
+
+        if(strstr(line_generator_get_plaintext(&lg2), "href") != NULL) {
+            printf("  FAIL link markup leaks into the plain text stream\n");
+            failures++;
+        } else {
+            printf("  ok   link markup is stripped from the plain text stream\n");
+        }
+    }
+
     printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "PASSED", failures);
     return failures ? 1 : 0;
 }

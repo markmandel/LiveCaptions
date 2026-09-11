@@ -103,6 +103,9 @@ void line_generator_init(struct line_generator *lg) {
 
         lg->lines[i].start_head = 0;
         lg->lines[i].start_len = 0;
+        lg->lines[i].speaker_id = LINE_SPEAKER_UNKNOWN;
+        lg->lines[i].prefix_len = 0;
+        lg->lines[i].prefix_width = 0;
     }
 
     lg->current_line = 0;
@@ -321,6 +324,9 @@ void line_generator_break(struct line_generator *lg) {
     lg->lines[lg->current_line].len = 0;
     lg->lines[lg->current_line].start_head = 0;
     lg->lines[lg->current_line].start_len = 0;
+    lg->lines[lg->current_line].speaker_id = LINE_SPEAKER_UNKNOWN;
+    lg->lines[lg->current_line].prefix_len = 0;
+    lg->lines[lg->current_line].prefix_width = 0;
 }
 
 // Distinguishable at a glance and legible on both light and dark backgrounds,
@@ -353,27 +359,97 @@ static void write_speaker_prefix(struct line_generator *lg,
     // anywhere near Pango markup
     char *escaped = g_markup_escape_text(name, -1);
 
+    // Wrapped in a link so the name can be clicked to change it. Pango would
+    // otherwise paint it in the theme's link colour with an underline, which
+    // would lose the per-speaker colour, so the inner span overrides both.
     curr->head = sprintf(curr->text,
-                         "<span foreground=\"%s\" weight=\"bold\">%s:</span> ",
-                         line_generator_speaker_color(speaker_id), escaped);
+                         "<a href=\"" LINE_SPEAKER_URI_PREFIX "%d\">"
+                         "<span foreground=\"%s\" weight=\"bold\" underline=\"none\">%s:</span>"
+                         "</a> ",
+                         speaker_id, line_generator_speaker_color(speaker_id), escaped);
 
     g_free(escaped);
 
     // Freeze the prefix: line_generator_update rewrites everything from
     // start_head onwards on every token, and would otherwise erase it
     curr->start_head = curr->head;
+    curr->prefix_len = curr->head;
+    curr->speaker_id = speaker_id;
 
     // The width has to count the prefix as it appears on screen, not as markup,
     // or wrapping will run the first line past the edge of the window. The
     // layout is not available until the first recognition result has arrived.
+    curr->prefix_width = 0;
+
     if(lg->layout != NULL) {
         char plain[LINE_SPEAKER_NAME_MAX + 4];
         g_snprintf(plain, sizeof(plain), "%s: ", name);
 
-        curr->len = line_generator_get_text_width(lg, plain);
+        curr->prefix_width = line_generator_get_text_width(lg, plain);
     }
 
+    curr->len = curr->prefix_width;
     curr->start_len = curr->len;
+}
+
+
+bool line_generator_rename_speaker(struct line_generator *lg,
+                                   int32_t speaker_id,
+                                   const char *name)
+{
+    if((speaker_id == LINE_SPEAKER_UNKNOWN) || (name == NULL) || (name[0] == '\0')) return false;
+
+    char *escaped = g_markup_escape_text(name, -1);
+
+    char prefix[AC_LINE_MAX];
+    int prefix_len = g_snprintf(prefix, sizeof(prefix),
+                                "<a href=\"" LINE_SPEAKER_URI_PREFIX "%d\">"
+                                "<span foreground=\"%s\" weight=\"bold\" underline=\"none\">%s:</span>"
+                                "</a> ",
+                                speaker_id, line_generator_speaker_color(speaker_id), escaped);
+
+    g_free(escaped);
+
+    if((prefix_len <= 0) || (prefix_len >= AC_LINE_MAX)) return false;
+
+    size_t width = 0;
+    if(lg->layout != NULL) {
+        char plain[LINE_SPEAKER_NAME_MAX + 4];
+        g_snprintf(plain, sizeof(plain), "%s: ", name);
+        width = line_generator_get_text_width(lg, plain);
+    }
+
+    bool changed = false;
+
+    for(size_t i=0; i<AC_LINE_COUNT; i++){
+        struct line *curr = &lg->lines[i];
+
+        if((curr->speaker_id != speaker_id) || (curr->prefix_len == 0)) continue;
+
+        size_t tail = curr->head - curr->prefix_len;
+
+        // Refuse rather than truncate somebody's words to fit a longer name
+        if(((size_t)prefix_len + tail) >= AC_LINE_MAX) continue;
+
+        // Shift what was said along to make room for the new name
+        memmove(&curr->text[prefix_len], &curr->text[curr->prefix_len], tail + 1);
+        memcpy(curr->text, prefix, (size_t)prefix_len);
+
+        ssize_t byte_delta = (ssize_t)prefix_len - (ssize_t)curr->prefix_len;
+        ssize_t width_delta = (ssize_t)width - (ssize_t)curr->prefix_width;
+
+        curr->head = (size_t)((ssize_t)curr->head + byte_delta);
+        curr->start_head = (size_t)((ssize_t)curr->start_head + byte_delta);
+        curr->len = (size_t)((ssize_t)curr->len + width_delta);
+        curr->start_len = (size_t)((ssize_t)curr->start_len + width_delta);
+
+        curr->prefix_len = (size_t)prefix_len;
+        curr->prefix_width = width;
+
+        changed = true;
+    }
+
+    return changed;
 }
 
 void line_generator_set_speaker(struct line_generator *lg,

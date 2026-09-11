@@ -255,6 +255,41 @@
 
         <child>
           <object class="AdwPreferencesGroup">
+            <property name="title" translatable="yes">Voices</property>
+            <property name="description" translatable="yes">Voices you have named are remembered so the same people are recognised next time. They are stored only on this computer.</property>
+
+            <child>
+              <object class="AdwActionRow" id="voices_row">
+                <property name="title" translatable="yes">Remembered Voices</property>
+
+                <child type="suffix">
+                  <object class="GtkLabel" id="voices_label">
+                    <property name="visible">True</property>
+                    <property name="valign">center</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <child>
+              <object class="AdwActionRow">
+                <property name="title" translatable="yes">Forget All Voices</property>
+                <property name="subtitle" translatable="yes">Deletes every stored voice. Transcripts keep the names already written into them.</property>
+                <property name="activatable">True</property>
+                <signal name="activated" handler="forget_voices_cb" swapped="yes"/>
+                <child>
+                  <object class="GtkImage">
+                    <property name="icon_name">delete-symbolic</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+          </object>
+        </child>
+
+        <child>
+          <object class="AdwPreferencesGroup">
             <property name="description" translatable="yes">Please keep in mind that even if the source audio is clean, the model may sometimes make mistakes and include profanity where there isn't.</property>
             <property name="title" translatable="yes">Filtering</property>
 
