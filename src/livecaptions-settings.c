@@ -288,6 +288,14 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
 
 // The settings window needs to be kept on top if the main window is kept on top,
 // otherwise the settings will appear under the main window which is not ideal
+// The application pointer is assigned after construction, so the count cannot
+// be read while the window is still being built
+static gboolean deferred_update_voice_count(void *userdata) {
+    update_voice_count(LIVECAPTIONS_SETTINGS(userdata));
+
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean deferred_update_keep_above(void *userdata) {
     LiveCaptionsSettings *self = userdata;
 
@@ -497,7 +505,6 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     g_settings_bind(self->settings, "diarization", self->diarization_switch, "active", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "speaker-similarity-threshold", self->speaker_threshold_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
     on_speaker_threshold_value_changed(self->speaker_threshold_adjustment, self);
-    update_voice_count(self);
 
     g_settings_bind(self->settings, "font-name", self->font_button, "font", G_SETTINGS_BIND_DEFAULT);
 
@@ -506,6 +513,8 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     gtk_scale_add_mark(self->line_count_scale, 8.0, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->silence_timeout_scale, 6.0, GTK_POS_TOP, NULL);
     gtk_scale_add_mark(self->speaker_threshold_scale, 0.50, GTK_POS_TOP, NULL);
+
+    g_idle_add(deferred_update_voice_count, self);
 
     char benchmark_result[32];
     double benchmark_result_v = g_settings_get_double(self->settings, "benchmark");
