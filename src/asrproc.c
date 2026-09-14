@@ -91,9 +91,11 @@ struct asr_thread_i {
     // to the tally.
     uint64_t last_boundary_ms;
 
-    // Who the utterance being recognised belongs to, fixed when it started
-    int32_t utterance_speaker;
-    bool utterance_open;
+    // Who the utterance being recognised belongs to, fixed when it started.
+    // Atomic because the diarizer's worker thread reads them to tell a real
+    // change of speaker from its first attribution of a turn.
+    _Atomic int32_t utterance_speaker;
+    _Atomic bool utterance_open;
 
     uint64_t last_speaker_flush_ms;
 };
@@ -238,17 +240,39 @@ static uint64_t asr_capture_ms(asr_thread data) {
     return (samples * 1000ull) / (uint64_t)aam_get_sample_rate(data->model);
 }
 
-// Called from the diarizer's worker thread when a different speaker takes the
-// floor. Flushing forces april-asr to finalize immediately, which is what makes
+// Called from the diarizer's worker thread when it decides who holds the floor.
+// Flushing forces april-asr to finalize immediately, which is what makes
 // transcript boundaries line up with speaker boundaries instead of with the
 // engine's own 2.2s silence heuristic.
+//
+// Only a genuine handover is worth that. The diarizer also reports its first
+// attribution of every turn, and a turn ends after a few hundred milliseconds
+// of silence, so most of these calls are one person carrying on after drawing
+// breath. Flushing for those finalizes mid-sentence and breaks the caption line
+// roughly a second after they resumed, which reads as a line break at random.
+//
+// The comparison is against the utterance being recognised rather than the
+// diarizer's own idea of who spoke last, because that utterance is what the
+// flush would be splitting:
+//
+//  - Nothing being recognised: there is nothing to split. Whoever speaks next
+//    gets their name from apply_speaker_label, which starts their line itself.
+//  - Recognised but not yet attributed: same again, and this is the case that
+//    fires at the top of every turn.
+//  - Attributed to somebody else: a real change of speaker part way through
+//    somebody's words, which is exactly what the flush is for.
 static void on_speaker_changed(void *userdata, int32_t speaker_id) {
     asr_thread data = userdata;
 
-    (void)speaker_id;
-
     if((data->window == NULL) || data->pause) return;
     if(data->session == NULL) return;
+
+    // Written by the recognizer thread. Reading them a moment out of date here
+    // costs at most one flush too many or too few, never correctness.
+    if(!data->utterance_open) return;
+
+    int32_t current = data->utterance_speaker;
+    if((current == HISTORY_SPEAKER_UNKNOWN) || (current == speaker_id)) return;
 
     uint64_t now_ms = asr_capture_ms(data);
 
